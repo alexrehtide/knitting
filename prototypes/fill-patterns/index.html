@@ -1,0 +1,293 @@
+<!doctype html>
+<!--
+  ПРОТОТИП, выбросить. Тикет «Библиотека узоров заливки» (#6).
+  Три принципиально разных библиотеки по 16 узоров, переключение ?variant=A|B|C (стрелки ← →).
+  Открыть двойным щелчком. jsPDF грузится с CDN только для кнопки «PDF для печати».
+-->
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Узоры заливки — прототип</title>
+<style>
+  :root { --bg: #f6f6f4; --fg: #1d1d1b; --muted: #6b6b66; --line: #d9d9d4; --panel: #ffffff; }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
+  header { position: sticky; top: 0; z-index: 2; background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 16px; }
+  h1 { font-size: 16px; margin: 0 0 4px; }
+  .idea { color: var(--muted); margin: 0 0 8px; }
+  .controls { display: flex; flex-wrap: wrap; gap: 6px 18px; align-items: center; }
+  .controls label { display: inline-flex; gap: 6px; align-items: center; }
+  .seg { display: inline-flex; border: 1px solid var(--line); border-radius: 6px; overflow: hidden; }
+  .seg button { border: 0; background: none; padding: 4px 9px; cursor: pointer; font: inherit; }
+  .seg button[aria-pressed="true"] { background: var(--fg); color: #fff; }
+  main { padding: 16px 16px 90px; }
+  table { border-collapse: collapse; background: var(--panel); }
+  th, td { border-bottom: 1px solid var(--line); padding: 6px 10px; text-align: left; vertical-align: middle; }
+  th { font-weight: 600; font-size: 12px; color: var(--muted); }
+  td.num { font-weight: 600; font-size: 16px; }
+  td canvas { display: inline-block; vertical-align: middle; margin-right: 6px; }
+  .state { font: 12px/1.4 ui-monospace, monospace; color: var(--muted); margin-top: 6px; }
+  .scroll { overflow: auto; max-width: 100%; background: var(--panel); padding: 8px; display: inline-block; }
+  pre { background: var(--panel); padding: 10px; overflow: auto; max-height: 60vh; font-size: 12px; }
+  .legend { display: flex; flex-wrap: wrap; gap: 6px 16px; margin-top: 10px; }
+  .legend span { display: inline-flex; gap: 6px; align-items: center; }
+  #switcher { position: fixed; bottom: 16px; left: 50%; transform: translateX(-50%); z-index: 5;
+    display: flex; align-items: center; gap: 4px; background: #111; color: #fff; border-radius: 999px;
+    padding: 6px 8px; box-shadow: 0 4px 18px rgba(0,0,0,.35); font: 600 13px system-ui, sans-serif; }
+  #switcher button { background: #333; color: #fff; border: 0; border-radius: 999px; width: 30px; height: 30px; cursor: pointer; font-size: 16px; }
+  #switcher span { padding: 0 12px; min-width: 190px; text-align: center; }
+</style>
+</head>
+<body>
+<header>
+  <h1 id="title"></h1>
+  <p class="idea" id="idea"></p>
+  <div class="controls">
+    <span class="seg" data-key="view"></span>
+    <span class="seg" data-key="mode"></span>
+    <label>Клетка <input type="range" id="cell" min="3" max="48" value="16"> <b id="cellv"></b></label>
+    <span class="seg" data-key="aspect"></span>
+    <label>Знак поверх цвета <span class="seg" data-key="ink"></span></label>
+    <label>Ниже 8 px <span class="seg" data-key="low"></span></label>
+    <label>Нитей <input type="number" id="ny" min="2" max="16" value="8" style="width:4em"></label>
+    <label><input type="checkbox" id="firstBlank"> нить 1 без узора</label>
+    <label><input type="checkbox" id="minw" checked> линии ≥ 1 px</label>
+    <button id="pdf">PDF для печати</button>
+  </div>
+  <div class="state" id="state"></div>
+</header>
+<main id="main"></main>
+<div id="switcher">
+  <button id="prev" title="Предыдущий вариант (←)">‹</button>
+  <span id="vlabel"></span>
+  <button id="next" title="Следующий вариант (→)">›</button>
+</div>
+
+<script src="patterns.js"></script>
+<script>
+const { LIBRARIES, BLANK, renderPrims, inkStyle, SAMPLE_COLORS, sampleChart, patternForYarn, buildPdf } = FP;
+const VARIANTS = Object.keys(LIBRARIES);
+const OPTIONS = {
+  view: [['lib', 'Библиотека'], ['chart', 'Схема'], ['pairs', 'Пары'], ['json', 'Описание']],
+  mode: [['color', 'цвет'], ['pattern', 'узор'], ['color+pattern', 'цвет+узор']],
+  aspect: [['1', '1:1'], ['1.333', '4:3 (петля шире)'], ['0.75', '3:4']],
+  ink: [['black', 'чёрный'], ['auto', 'авто ч/б'], ['halo', 'с белой обводкой']],
+  low: [['tone', 'серый тон'], ['color', 'цвет'], ['force', 'узор всё равно']],
+};
+const params = new URLSearchParams(location.search);
+const st = {
+  variant: VARIANTS.includes(params.get('variant')) ? params.get('variant') : 'A',
+  view: 'lib', mode: 'pattern', aspect: '1', ink: 'auto', low: 'tone',
+  cell: 16, nYarns: 8, firstBlank: false, minw: true,
+};
+for (const k of ['view', 'mode', 'aspect', 'ink', 'low']) if (OPTIONS[k].some(o => o[0] === params.get(k))) st[k] = params.get(k);
+if (params.has('cell')) st.cell = +params.get('cell');
+if (params.has('ny')) st.nYarns = +params.get('ny');
+document.getElementById('cell').value = st.cell;
+document.getElementById('ny').value = st.nYarns;
+const dpr = window.devicePixelRatio || 1;
+
+// ---------- штампы клеток ----------
+const stamps = new Map();
+const canvasApi = (ctx) => {
+  const b = {
+    moveTo: (x, y) => ctx.moveTo(x, y), lineTo: (x, y) => ctx.lineTo(x, y), close: () => ctx.closePath(),
+    circle: (cx, cy, r) => { ctx.moveTo(cx + r, cy); ctx.arc(cx, cy, r, 0, Math.PI * 2); },
+  };
+  return {
+    stroke(path, w, color) { ctx.beginPath(); path(b); ctx.lineWidth = w; ctx.strokeStyle = color; ctx.stroke(); },
+    fill(path, color) { ctx.beginPath(); path(b); ctx.fillStyle = color; ctx.fill(); },
+  };
+};
+const density = new Map(); // доля «чернил» узора, для серого тона на мелком зуме
+function inkDensity(pat) {
+  if (density.has(pat.id + pat.name)) return density.get(pat.id + pat.name);
+  const s = 48, c = document.createElement('canvas'); c.width = c.height = s;
+  const ctx = c.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, s, s);
+  ctx.save(); ctx.beginPath(); ctx.rect(0, 0, s, s); ctx.clip(); ctx.scale(s, s); ctx.lineCap = ctx.lineJoin = 'round';
+  renderPrims(canvasApi(ctx), pat.prims, { ink: '#000' }); ctx.restore();
+  const d = ctx.getImageData(0, 0, s, s).data; let sum = 0;
+  for (let i = 0; i < d.length; i += 4) sum += 255 - d[i];
+  const v = sum / (255 * s * s); density.set(pat.id + pat.name, v); return v;
+}
+// Клетка cw×ch device px: что нарисовать для нити с узором pat и цветом color в текущем режиме
+function stamp(pat, color, cw, ch, mode) {
+  const below = Math.min(cw, ch) / dpr < 8 && st.low !== 'force';
+  const key = [pat.id, pat.name, color, cw, ch, mode, st.ink, st.low, st.minw, below].join('|');
+  if (stamps.has(key)) return stamps.get(key);
+  const c = document.createElement('canvas'); c.width = cw; c.height = ch;
+  const ctx = c.getContext('2d');
+  let bg = mode === 'pattern' ? '#ffffff' : color;
+  let drawPattern = mode !== 'color';
+  if (drawPattern && below) {
+    drawPattern = false;
+    if (mode === 'pattern') {
+      if (st.low === 'tone') { const g = Math.round(255 * (1 - 0.85 * inkDensity(pat))); bg = `rgb(${g},${g},${g})`; }
+      else bg = color;
+    }
+  }
+  ctx.fillStyle = bg; ctx.fillRect(0, 0, cw, ch);
+  if (drawPattern) {
+    ctx.save(); ctx.beginPath(); ctx.rect(0, 0, cw, ch); ctx.clip(); ctx.scale(cw, ch);
+    ctx.lineCap = ctx.lineJoin = 'round';
+    const s = mode === 'pattern' ? { ink: '#000000' } : inkStyle(color, st.ink);
+    if (st.minw) s.minW = 1 / Math.min(cw, ch);
+    renderPrims(canvasApi(ctx), pat.prims, s);
+    ctx.restore();
+  }
+  stamps.set(key, c);
+  return c;
+}
+function cellSize(cssPx) {
+  // пропорция = ширина / высота; меньшая сторона клетки = cssPx
+  const a = +st.aspect, s = Math.round(cssPx * dpr);
+  return a >= 1 ? [Math.round(s * a), s] : [s, Math.round(s / a)];
+}
+
+// Сетка: cols×rows, at(c, r) → { pat, color } | null (пустая клетка)
+function gridCanvas(cols, rows, cssPx, at, mode, major) {
+  const [cw, ch] = cellSize(cssPx);
+  const c = document.createElement('canvas');
+  c.width = cols * cw; c.height = rows * ch;
+  c.style.width = c.width / dpr + 'px'; c.style.height = c.height / dpr + 'px';
+  const ctx = c.getContext('2d', { alpha: false });
+  ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, c.width, c.height);
+  for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+    const v = at(q, r); if (!v) continue;
+    ctx.drawImage(stamp(v.pat, v.color, cw, ch, mode), q * cw, r * ch);
+  }
+  if (cssPx >= 4) {
+    for (const [n, size, total, vert] of [[cols, cw, rows * ch, true], [rows, ch, cols * cw, false]]) {
+      for (let i = 0; i <= n; i++) {
+        const isMajor = major && i % major === 0;
+        ctx.fillStyle = isMajor ? 'rgba(0,0,0,.75)' : 'rgba(0,0,0,.22)';
+        const p = Math.min(i * size, (vert ? c.width : c.height) - 1);
+        if (vert) ctx.fillRect(p, 0, 1, total); else ctx.fillRect(0, p, total, 1);
+      }
+    }
+  }
+  return c;
+}
+
+// ---------- виды ----------
+const lib = () => LIBRARIES[st.variant];
+const main = document.getElementById('main');
+const SWATCHES = ['#f3ead8', '#e3b23c', '#c8323c', '#2f6b3a', '#1f2e5a', '#111111'];
+
+function viewLib() {
+  const t = document.createElement('table');
+  t.innerHTML = `<tr><th>№</th><th>Узор</th><th>Чернила</th><th>3×3 при 8 / 12 / 16 / 24 / 40 px, режим «узор»</th>
+    <th>3×3 при ${st.cell} px поверх цветов, «цвет+узор»</th></tr>`;
+  lib().patterns.forEach((pat, i) => {
+    const tr = t.insertRow();
+    tr.insertCell().textContent = i + 1; tr.cells[0].className = 'num';
+    tr.insertCell().textContent = pat.name;
+    tr.insertCell().textContent = Math.round(inkDensity(pat) * 100) + '%';
+    const a = tr.insertCell();
+    for (const s of [8, 12, 16, 24, 40]) a.append(gridCanvas(3, 3, s, () => ({ pat, color: '#ffffff' }), 'pattern', 0));
+    const b = tr.insertCell();
+    for (const color of SWATCHES) b.append(gridCanvas(3, 3, st.cell, () => ({ pat, color }), 'color+pattern', 0));
+  });
+  main.replaceChildren(t);
+}
+
+function viewChart() {
+  const ch = sampleChart(st.nYarns);
+  const at = (q, r) => { const v = ch.cells[r * ch.w + q]; return v === 255 ? null : { pat: patternForYarn(lib(), v, st.firstBlank), color: SAMPLE_COLORS[v] }; };
+  const wrap = document.createElement('div'); wrap.className = 'scroll';
+  wrap.append(gridCanvas(ch.w, ch.h, st.cell, at, st.mode, 10));
+  const leg = document.createElement('div'); leg.className = 'legend';
+  for (let v = 0; v < st.nYarns; v++) {
+    const s = document.createElement('span');
+    const pat = patternForYarn(lib(), v, st.firstBlank);
+    s.append(gridCanvas(1, 1, 24, () => ({ pat, color: SAMPLE_COLORS[v] }), st.mode, 0), `${v + 1} · ${pat.name}`);
+    leg.append(s);
+  }
+  const note = document.createElement('p');
+  note.textContent = 'Левый верхний угол — пустые клетки. Порядок нитей = порядок назначения узоров новой нити.';
+  main.replaceChildren(note, wrap, leg);
+}
+
+function viewPairs() {
+  const ps = lib().patterns, n = ps.length;
+  const note = document.createElement('p');
+  note.textContent = 'Блок (строка i, столбец j) — шахматка 2×2 из узоров i и j. По диагонали один узор: ищите швы между клетками.';
+  const wrap = document.createElement('div'); wrap.className = 'scroll';
+  wrap.append(gridCanvas(2 * n, 2 * n, st.cell, (q, r) => {
+    const i = r >> 1, j = q >> 1; return { pat: ps[((q + r) & 1) === 0 ? i : j], color: SAMPLE_COLORS[((q + r) & 1) === 0 ? i : j] };
+  }, st.mode, 2));
+  main.replaceChildren(note, wrap);
+}
+
+function viewJson() {
+  const pre = document.createElement('pre');
+  pre.textContent = '// Единичный квадрат клетки, y вниз. L — отрезок, D — круг, O — окружность, P — многоугольник, S — ломаная; w — толщина в долях клетки.\n'
+    + '// Порядок массива = порядок назначения новой нити.\n'
+    + JSON.stringify(lib().patterns.map(p => ({ id: p.id, name: p.name, prims: p.prims })), null, 1);
+  main.replaceChildren(pre);
+}
+
+function render() {
+  const L = lib();
+  document.getElementById('title').textContent = `Вариант ${st.variant}: «${L.name}» — ${L.patterns.length} узоров`;
+  document.getElementById('idea').textContent = L.idea;
+  document.getElementById('vlabel').textContent = `${st.variant} (${L.name})`;
+  document.getElementById('cellv').textContent = st.cell + ' px';
+  for (const seg of document.querySelectorAll('.seg')) {
+    for (const b of seg.children) b.setAttribute('aria-pressed', String(st[seg.dataset.key] === b.dataset.v));
+  }
+  const [cw, ch] = cellSize(st.cell);
+  document.getElementById('state').textContent = JSON.stringify({ ...st, cellDevicePx: `${cw}×${ch}`, dpr, stamps: stamps.size });
+  ({ lib: viewLib, chart: viewChart, pairs: viewPairs, json: viewJson })[st.view]();
+}
+
+// ---------- управление ----------
+for (const seg of document.querySelectorAll('.seg')) {
+  for (const [v, label] of OPTIONS[seg.dataset.key]) {
+    const b = document.createElement('button'); b.dataset.v = v; b.textContent = label;
+    b.onclick = () => { st[seg.dataset.key] = v; render(); };
+    seg.append(b);
+  }
+}
+const cell = document.getElementById('cell');
+cell.oninput = () => { st.cell = +cell.value; render(); };
+const ny = document.getElementById('ny');
+ny.oninput = () => { st.nYarns = Math.max(2, Math.min(16, +ny.value || 2)); render(); };
+document.getElementById('firstBlank').onchange = (e) => { st.firstBlank = e.target.checked; render(); };
+document.getElementById('minw').onchange = (e) => { st.minw = e.target.checked; render(); };
+
+function go(delta) {
+  st.variant = VARIANTS[(VARIANTS.indexOf(st.variant) + delta + VARIANTS.length) % VARIANTS.length];
+  const p = new URLSearchParams(location.search); p.set('variant', st.variant);
+  history.replaceState(null, '', '?' + p);
+  render();
+}
+document.getElementById('prev').onclick = () => go(-1);
+document.getElementById('next').onclick = () => go(1);
+addEventListener('keydown', (e) => {
+  if (e.target.closest('input, textarea, [contenteditable]')) return;
+  if (e.key === 'ArrowLeft') go(-1);
+  if (e.key === 'ArrowRight') go(1);
+});
+
+let jspdfLoading;
+document.getElementById('pdf').onclick = async () => {
+  jspdfLoading ||= new Promise((ok, fail) => {
+    const s = document.createElement('script');
+    s.src = 'https://cdn.jsdelivr.net/npm/jspdf@4.2.1/dist/jspdf.umd.min.js';
+    s.onload = () => ok(window.jspdf); s.onerror = fail; document.head.append(s);
+  });
+  const jspdf = await jspdfLoading;
+  const a = +st.aspect;
+  const doc = buildPdf(jspdf, st.variant, {
+    strategy: st.ink, aspect: a, aspectLabel: OPTIONS.aspect.find(o => o[0] === st.aspect)[1].split(' ')[0],
+    nYarns: st.nYarns, firstBlank: st.firstBlank, minWmm: 0.25,
+  });
+  doc.save(`fill-patterns-${st.variant}-${st.ink}.pdf`);
+};
+
+render();
+</script>
+</body>
+</html>
