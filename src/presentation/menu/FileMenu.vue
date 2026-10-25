@@ -9,6 +9,7 @@ import { useCommandMenuItems, useCommands } from '../commands/useCommands'
 import { downloadJson } from '../editor/download'
 import { chartFileFormatKey, injectStrict } from '../editor/injection'
 import { useEditor } from '../editor/useEditor'
+import NewChartModal from './NewChartModal.vue'
 import SaveChangesModal, { type SaveChangesChoice } from './SaveChangesModal.vue'
 
 const { t } = useI18n()
@@ -25,17 +26,25 @@ function save() {
   dispatch({ type: 'mark-saved' })
 }
 
-/** Asks what to do with the changes not in a file first, if there are any. */
-function open() {
-  if (state.value.unsavedToFile) saveChangesOpen.value = true
-  else fileInput.value?.click()
+/** What replaces the chart once the changes not in a file are saved or discarded. */
+let replace = () => {}
+
+/** Asks what to do with the changes not in a file first, if there are any, then replaces the chart. */
+function replaceChart(then: () => void) {
+  if (!state.value.unsavedToFile) return then()
+  replace = then
+  saveChangesOpen.value = true
 }
 
 function onSaveChanges(choice: SaveChangesChoice) {
   if (choice === 'cancel') return
   if (choice === 'save') save()
-  fileInput.value?.click()
+  replace()
 }
+
+const newChartOpen = ref(false)
+const newChart = () => replaceChart(() => (newChartOpen.value = true))
+const open = () => replaceChart(() => fileInput.value?.click())
 
 function errorMessage(error: KchartError) {
   if (error.code !== 'corrupt') return t(`file.error.${error.code}`)
@@ -56,7 +65,18 @@ async function onFileChosen() {
 }
 
 // Off during a gesture: the file would hold a stroke that is not finished.
+// `Alt+N` is the spare one: Chrome keeps `Ctrl+N` for a new window.
 useCommands([
+  {
+    id: 'file.new',
+    label: 'menu.file.new',
+    keys: [
+      { code: 'KeyN', ctrl: true },
+      { code: 'KeyN', alt: true },
+    ],
+    run: newChart,
+    enabled: () => !state.value.gestureActive,
+  },
   {
     id: 'file.open',
     label: 'menu.file.open',
@@ -73,7 +93,7 @@ useCommands([
   },
 ])
 
-const commandItems = useCommandMenuItems(['file.open', 'file.save'])
+const commandItems = useCommandMenuItems(['file.new', 'file.open', 'file.save'])
 const items = computed<DropdownMenuItem[][]>(() => [commandItems.value])
 </script>
 
@@ -90,4 +110,5 @@ const items = computed<DropdownMenuItem[][]>(() => [commandItems.value])
     @change="onFileChosen"
   />
   <SaveChangesModal v-model:open="saveChangesOpen" @choose="onSaveChanges" />
+  <NewChartModal v-model:open="newChartOpen" />
 </template>

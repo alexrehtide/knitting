@@ -508,6 +508,20 @@ describe('unsaved to file', () => {
     expect(session.state.unsavedToFile).toBe(false)
   })
 
+  it('is cleared by a new chart, even for a chart restored from the autosave', () => {
+    const session = smallSession()
+    session.dispatch({ type: 'replace-chart', chart: createChart(10, 8, now), unsavedToFile: true })
+
+    session.dispatch({
+      type: 'new-chart',
+      width: 30,
+      height: 20,
+      gauge: { stitches: 20, rows: 28 },
+    })
+
+    expect(session.state.unsavedToFile).toBe(false)
+  })
+
   it('is kept for a chart restored from the autosave until it is saved; undo cannot clear it', () => {
     const session = smallSession()
 
@@ -1497,5 +1511,58 @@ describe('chart properties', () => {
     session.dispatch({ type: 'undo' })
     expect(session.state.chart.properties.modifiedAt).toEqual(time)
     expect(session.state.chart.properties.createdAt).toEqual(new Date('2026-10-25T10:00:00.000Z'))
+  })
+})
+
+describe('new chart', () => {
+  it('replaces the chart with an empty one of the size, with the default palette and no history', () => {
+    const later = new Date('2026-10-25T12:00:00.000Z')
+    let time = now
+    const session = createEditorSession({ clock: { now: () => time } })
+    session.dispatch({ type: 'replace-chart', chart: createChart(10, 8, now) })
+    session.dispatch({ type: 'add-yarn' })
+    session.dispatch({ type: 'select-yarn', yarn: 3 })
+    stroke(session, [{ row: 0, column: 0 }])
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    time = later
+    session.dispatch({
+      type: 'new-chart',
+      width: 30,
+      height: 20,
+      gauge: { stitches: 22, rows: 30 },
+    })
+
+    const { chart } = session.state
+    expect(events).toEqual([{ type: 'replaced' }])
+    expect([chart.width, chart.height]).toEqual([30, 20])
+    expect(chart.cells).toEqual(new Uint16Array(30 * 20))
+    expect(chart.palette).toEqual(createChart(1, 1, now).palette)
+    expect(chart.properties).toEqual({
+      ...createChart(1, 1, later).properties,
+      gauge: { stitches: 22, rows: 30 },
+    })
+    expect([session.state.currentYarn, session.state.previousYarn]).toEqual([1, 2])
+    expect(session.state.stitchCounts.size).toBe(0)
+    expect(session.state.canUndo).toBe(false)
+    expect(session.state.canRedo).toBe(false)
+    expect(session.state.unsavedToFile).toBe(false)
+  })
+
+  it('ignores a size out of 1–500 and a gauge that is not positive', () => {
+    const session = smallSession()
+    const chart = session.state.chart
+
+    session.dispatch({ type: 'new-chart', width: 0, height: 20, gauge: { stitches: 20, rows: 28 } })
+    session.dispatch({
+      type: 'new-chart',
+      width: 30,
+      height: 501,
+      gauge: { stitches: 20, rows: 28 },
+    })
+    session.dispatch({ type: 'new-chart', width: 30, height: 20, gauge: { stitches: 0, rows: 28 } })
+
+    expect(session.state.chart).toBe(chart)
   })
 })

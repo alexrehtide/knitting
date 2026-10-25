@@ -26,6 +26,13 @@ export const ru = {
       save: 'Сохранить в файл',
     },
   },
+  newChart: {
+    title: 'Новая схема',
+    width: 'Ширина, петель',
+    height: 'Высота, рядов',
+    cancel: 'Отмена',
+    create: 'Создать',
+  },
   autosave: {
     title: 'Автосохранение в браузере',
     saved: 'сохранено',
@@ -105,6 +112,7 @@ export const ru = {
   menu: {
     file: {
       title: 'Файл',
+      new: 'Новая схема…',
       open: 'Открыть .kchart…',
       save: 'Сохранить в файл .kchart',
     },

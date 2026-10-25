@@ -1,4 +1,10 @@
-import { createChart, initialYarnSelection, repairYarnSelection, type Chart } from '../domain/chart'
+import {
+  createChart,
+  initialYarnSelection,
+  repairYarnSelection,
+  type Chart,
+  type ChartProperties,
+} from '../domain/chart'
 import {
   propertiesPatch,
   propertyError,
@@ -27,6 +33,7 @@ import {
   type ChartPatch,
   type PlainPatch,
 } from '../domain/patch'
+import { isValidChartDimension } from '../domain/chartSize'
 import { clampToGrid, rectangleCells } from '../domain/rectangle'
 import { countStitches, updateStitchCounts, type StitchCounts } from '../domain/stitchCount'
 import {
@@ -128,9 +135,17 @@ export type EditorEvent =
  * `mark-saved` — the chart as it is now went to a `.kchart` file; `replace-chart` counts as saved too,
  * unless `unsavedToFile` says the chart has changes not in a file (one restored from the autosave):
  * then only saving clears the mark, as there is no history to undo back to a saved chart.
+ * `new-chart` replaces the chart with an empty one of the size and gauge, with the default palette
+ * and properties, and counts as saved; a size out of 1–500 or a gauge that is not positive is ignored.
  */
 export type EditorCommand =
   | { readonly type: 'replace-chart'; readonly chart: Chart; readonly unsavedToFile?: boolean }
+  | {
+      readonly type: 'new-chart'
+      readonly width: number
+      readonly height: number
+      readonly gauge: ChartProperties['gauge']
+    }
   | { readonly type: 'select-tool'; readonly tool: Tool }
   | { readonly type: 'select-display-mode'; readonly mode: DisplayMode }
   | { readonly type: 'hold-eyedropper'; readonly held: boolean }
@@ -208,6 +223,7 @@ interface Pick {
 // Only these reach a gesture; tool, display mode, yarn, palette and history commands are ignored during it.
 const DURING_GESTURE = new Set<EditorCommand['type']>([
   'replace-chart',
+  'new-chart',
   'hold-eyedropper',
   'pointer-down',
   'pointer-move',
@@ -478,17 +494,30 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     emit({ type: 'state' })
   }
 
+  function replaceChart(chart: Chart, unsavedToFile = false) {
+    gesture = null
+    mergeable = null
+    history = createHistory()
+    // A point that is never the history top.
+    savedTop = unsavedToFile ? {} : history.top
+    state = withChart(chart, state.tool, state.displayMode)
+    emit({ type: 'replaced' })
+  }
+
   function run(command: EditorCommand) {
     switch (command.type) {
       case 'replace-chart':
-        gesture = null
-        mergeable = null
-        history = createHistory()
-        // A point that is never the history top.
-        savedTop = command.unsavedToFile ? {} : history.top
-        state = withChart(command.chart, state.tool, state.displayMode)
-        emit({ type: 'replaced' })
+        replaceChart(command.chart, command.unsavedToFile)
         break
+      case 'new-chart': {
+        const { width, height, gauge } = command
+        if (!isValidChartDimension(width) || !isValidChartDimension(height)) break
+        if (propertyError({ gauge })) break
+        const chart = createChart(width, height, clock.now())
+        chart.properties = { ...chart.properties, gauge }
+        replaceChart(chart)
+        break
+      }
       case 'select-tool':
         if (command.tool === state.tool) break
         if (command.tool === 'eyedropper') toolBeforeEyedropper = state.tool
