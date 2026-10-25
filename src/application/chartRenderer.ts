@@ -1,8 +1,12 @@
 import type { GridCell } from '../domain/numbering'
 
-/** Chart placement on the canvas, in CSS px; `cellSize × dpr` is always a whole number of device px. */
+/**
+ * Chart placement on the canvas, in CSS px; the cell's sides × dpr are always whole numbers of device px,
+ * their ratio is the chart's cell aspect.
+ */
 export interface Viewport {
-  readonly cellSize: number
+  readonly cellWidth: number
+  readonly cellHeight: number
   readonly originX: number
   readonly originY: number
 }

@@ -19,6 +19,7 @@ import HelpMenu from './menu/HelpMenu.vue'
 import ViewMenu from './menu/ViewMenu.vue'
 import PalettePanel from './palette/PalettePanel.vue'
 import YarnSwatch from './palette/YarnSwatch.vue'
+import ChartPropertiesPanel from './properties/ChartPropertiesPanel.vue'
 import ToolButtons from './tools/ToolButtons.vue'
 import YarnPair from './tools/YarnPair.vue'
 
@@ -48,6 +49,7 @@ const panelTabs = computed(() => {
       slot: 'palette' as const,
       badge: clashes > 0 ? { label: String(clashes), color: 'warning' as const } : undefined,
     },
+    { label: t('panel.chart'), value: 'chart', slot: 'chart' as const },
   ]
 })
 </script>
@@ -102,6 +104,9 @@ const panelTabs = computed(() => {
           >
             <template #palette>
               <PalettePanel />
+            </template>
+            <template #chart>
+              <ChartPropertiesPanel />
             </template>
           </UTabs>
         </aside>

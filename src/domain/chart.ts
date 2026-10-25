@@ -26,7 +26,8 @@ export interface Chart {
   readonly cells: Uint16Array
   /** Replaced by palette patches, as cells are changed by cell patches. */
   palette: Palette
-  readonly properties: ChartProperties
+  /** Replaced by property patches; the editor also moves `modifiedAt` on each edit. */
+  properties: ChartProperties
 }
 
 /** Two yarns, white then black, used for the first run and a new chart. */

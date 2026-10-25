@@ -1,4 +1,10 @@
 import { createChart, initialYarnSelection, repairYarnSelection, type Chart } from '../domain/chart'
+import {
+  propertiesPatch,
+  propertyError,
+  type PropertyChanges,
+  type PropertyError,
+} from '../domain/chartProperties'
 import type { Clock } from '../domain/clock'
 import { fillCells } from '../domain/fill'
 import { lineCells, snapLineEnd } from '../domain/line'
@@ -64,7 +70,7 @@ export interface GesturePreview {
 export type PointerButton = 'primary' | 'secondary'
 
 /** An edit the session refused, as a typed code for the presentation's message. */
-export type EditRejection = 'palette-full'
+export type EditRejection = 'palette-full' | PropertyError
 
 export interface EditorState {
   readonly chart: Chart
@@ -90,7 +96,8 @@ export interface EditorState {
 
 /**
  * One stream for every subscriber (ADR-0006):
- * `patch` — a patch was applied to the chart (a gesture's cells, its rollback, a palette edit, undo, redo);
+ * `patch` — a patch was applied to the chart (a gesture's cells, its rollback, a palette or property edit,
+ * undo, redo);
  * a composite patch comes as one event per part;
  * `preview` — the gesture preview changed, the chart did not;
  * `replaced` — the whole chart was replaced (new chart, opened file);
@@ -116,6 +123,7 @@ export type EditorEvent =
  * picker drag is one edit.
  * `replace-yarn` puts `replacement` (0 — empty) in every cell of the yarn; `remove-yarn` with a
  * `replacement` does that and removes the yarn as one edit, and a used yarn is removed only so.
+ * `update-properties` changes chart properties as one edit; a property given its old value makes none.
  * `move-yarn` puts the yarn at `position` (0-based) in the palette as one edit; the grid stays as it is.
  * `mark-saved` — the chart as it is now went to a `.kchart` file; `replace-chart` counts as saved too,
  * unless `unsavedToFile` says the chart has changes not in a file (one restored from the autosave):
@@ -147,6 +155,7 @@ export type EditorCommand =
   | { readonly type: 'replace-yarn'; readonly yarn: YarnId; readonly replacement: YarnId }
   | { readonly type: 'remove-yarn'; readonly yarn: YarnId; readonly replacement?: YarnId }
   | { readonly type: 'move-yarn'; readonly yarn: YarnId; readonly position: number }
+  | { readonly type: 'update-properties'; readonly changes: PropertyChanges }
   | { readonly type: 'undo' }
   | { readonly type: 'redo' }
   | { readonly type: 'mark-saved' }
@@ -280,6 +289,13 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
   function record(patch: ChartPatch) {
     history.record(patch)
     mergeable = null
+    touch()
+  }
+
+  /** «Дата изменения» is the time of the last edit, undo and redo included; it is not part of a patch. */
+  function touch() {
+    const { chart } = state
+    chart.properties = { ...chart.properties, modifiedAt: clock.now() }
   }
 
   /** Applies a palette edit and records it, joining the last edit when `merge` names it. */
@@ -287,6 +303,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     const before = state.chart.palette
     if (merge !== undefined && mergeable?.key === merge) {
       history.amend({ kind: 'palette', before: mergeable.before, after })
+      touch()
     } else {
       record({ kind: 'palette', before, after })
       if (merge !== undefined) mergeable = { key: merge, before }
@@ -576,16 +593,32 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
         if (moved !== palette) editPalette(moved)
         break
       }
+      case 'update-properties': {
+        const code = propertyError(command.changes)
+        if (code) {
+          emit({ type: 'rejected', code })
+          break
+        }
+        const patch = propertiesPatch(state.chart.properties, command.changes)
+        if (!patch) break
+        record(patch)
+        apply(patch)
+        break
+      }
       case 'undo': {
         const patch = history.undo()
         mergeable = null
-        if (patch) apply(invertPatch(patch))
+        if (!patch) break
+        touch()
+        apply(invertPatch(patch))
         break
       }
       case 'redo': {
         const patch = history.redo()
         mergeable = null
-        if (patch) apply(patch)
+        if (!patch) break
+        touch()
+        apply(patch)
         break
       }
       case 'mark-saved':

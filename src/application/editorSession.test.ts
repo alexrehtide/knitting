@@ -1434,3 +1434,68 @@ describe('eyedropper', () => {
     expect(session.state.activeTool).toBe('brush')
   })
 })
+
+describe('chart properties', () => {
+  it('changes a property as one edit, which undo takes back and redo makes again', () => {
+    const session = smallSession()
+    const before = session.state.chart.properties
+
+    session.dispatch({ type: 'update-properties', changes: { title: 'Олени', majorStep: 5 } })
+    expect(session.state.chart.properties).toMatchObject({ title: 'Олени', majorStep: 5 })
+    expect(session.state.unsavedToFile).toBe(true)
+
+    session.dispatch({ type: 'undo' })
+    expect(session.state.chart.properties).toEqual(before)
+    expect(session.state.canUndo).toBe(false)
+
+    session.dispatch({ type: 'redo' })
+    expect(session.state.chart.properties).toMatchObject({ title: 'Олени', majorStep: 5 })
+  })
+
+  it('rejects a gauge of 0 with its code and changes nothing', () => {
+    const session = smallSession()
+    const before = session.state.chart.properties
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({ type: 'update-properties', changes: { gauge: { stitches: 0, rows: 28 } } })
+
+    expect(events).toEqual([{ type: 'rejected', code: 'gauge-not-positive' }])
+    expect(session.state.chart.properties).toBe(before)
+    expect(session.state.canUndo).toBe(false)
+  })
+
+  it('makes no edit when a committed field holds the same value', () => {
+    const session = smallSession()
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({
+      type: 'update-properties',
+      changes: { title: '', gauge: { rows: 28, stitches: 20 } },
+    })
+
+    expect(events).toEqual([])
+    expect(session.state.canUndo).toBe(false)
+    expect(session.state.unsavedToFile).toBe(false)
+  })
+
+  it('moves «modifiedAt» to the time of each edit, undo too, and keeps «createdAt»', () => {
+    let time = new Date('2026-10-25T10:00:00.000Z')
+    const session = createEditorSession({ clock: { now: () => time } })
+    session.dispatch({ type: 'replace-chart', chart: createChart(10, 8, time) })
+
+    time = new Date('2026-10-25T11:00:00.000Z')
+    stroke(session, [{ row: 0, column: 0 }])
+    expect(session.state.chart.properties.modifiedAt).toEqual(time)
+
+    time = new Date('2026-10-25T12:00:00.000Z')
+    session.dispatch({ type: 'update-properties', changes: { title: 'Олени' } })
+    expect(session.state.chart.properties.modifiedAt).toEqual(time)
+
+    time = new Date('2026-10-25T13:00:00.000Z')
+    session.dispatch({ type: 'undo' })
+    expect(session.state.chart.properties.modifiedAt).toEqual(time)
+    expect(session.state.chart.properties.createdAt).toEqual(new Date('2026-10-25T10:00:00.000Z'))
+  })
+})

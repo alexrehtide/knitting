@@ -17,7 +17,8 @@ const toast = useToast()
 
 onScopeDispose(
   injectStrict(editorSessionKey).subscribe((event) => {
-    if (event.type === 'rejected')
+    // Property edits the session refuses never come from the «Схема» tab: its fields check them first.
+    if (event.type === 'rejected' && event.code === 'palette-full')
       toast.add({ title: t(`palette.rejected.${event.code}`), color: 'error' })
   }),
 )

@@ -57,12 +57,24 @@ export async function probe(
 /** Margin around the chart after «Вписать», as in src/presentation/canvas/viewport.ts. */
 const FIT_MARGIN = 16
 
+/** The chart's numbering direction, as in `ChartProperties.numbering`. */
+export interface Numbering {
+  readonly rows: 'bottom-up' | 'top-down'
+  readonly stitches: 'right-to-left' | 'left-to-right'
+}
+
 /**
- * The page point at the centre of a cell named in the default numbering (rows bottom up,
- * stitches right to left), after «Вписать» at `deviceScaleFactor: 1`. Found from the canvas
- * `boundingBox` and the chart size in the status bar; hovers it and checks the status bar names it.
+ * The page point at the centre of a cell named in the numbering (by default rows bottom up,
+ * stitches right to left), after «Вписать» at `deviceScaleFactor: 1` with square cells. Found from
+ * the canvas `boundingBox` and the chart size in the status bar; hovers it and checks the status
+ * bar names it.
  */
-export async function cellCenter(page: Page, row: number, stitch: number) {
+export async function cellCenter(
+  page: Page,
+  row: number,
+  stitch: number,
+  numbering: Numbering = { rows: 'bottom-up', stitches: 'right-to-left' },
+) {
   const status = page.getByRole('contentinfo', { name: 'Статус' })
   const size = (await status.getByText(/^Размер: \d+ × \d+$/).textContent())?.match(/(\d+) × (\d+)/)
   const box = await page.getByTestId('chart-canvas').boundingBox()
@@ -74,10 +86,9 @@ export async function cellCenter(page: Page, row: number, stitch: number) {
   )
   const left = box.x + Math.round((box.width - width * cell) / 2)
   const top = box.y + Math.round((box.height - height * cell) / 2)
-  const point = {
-    x: left + (width - stitch + 0.5) * cell,
-    y: top + (height - row + 0.5) * cell,
-  }
+  const column = numbering.stitches === 'right-to-left' ? width - stitch : stitch - 1
+  const gridRow = numbering.rows === 'bottom-up' ? height - row : row - 1
+  const point = { x: left + (column + 0.5) * cell, y: top + (gridRow + 0.5) * cell }
 
   await page.mouse.move(point.x, point.y)
   await expect(status.getByText(`ряд ${row}, петля ${stitch}`, { exact: true })).toBeVisible()

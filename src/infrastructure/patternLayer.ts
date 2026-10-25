@@ -18,6 +18,12 @@ export interface CellRange {
   readonly r1: number
 }
 
+/** A cell's width and height in device px; they differ when the cell aspect is not 1:1. */
+export interface CellSize {
+  readonly w: number
+  readonly h: number
+}
+
 /** `pattern` — black icons over white cells; `color-pattern` — icons black or white by the yarn colour. */
 export type PatternMode = Exclude<DisplayMode, 'color'>
 
@@ -28,13 +34,15 @@ export type PatternMode = Exclude<DisplayMode, 'color'>
  * up to 6 ms and reports that more are due.
  */
 export function createPatternLayer(chartOf: () => Chart) {
-  let cell = 0
+  let cell: CellSize = { w: 0, h: 0 }
   let mode: PatternMode = 'pattern'
   /** Yarn → its stamp at `cell` in `mode`; `null` for a yarn without a pattern. */
   const stamps = new Map<YarnId, OffscreenCanvas | null>()
   /** `"column,row"` of a tile → the tile; Map order is the LRU order, oldest first. */
   const tiles = new Map<string, OffscreenCanvas>()
-  let tileCells = 1
+  /** Columns and rows of cells in a tile. */
+  let tileColumns = 1
+  let tileRows = 1
 
   /** Drops what was drawn for the palette, the mode and the cell size before. */
   function reset() {
@@ -43,11 +51,12 @@ export function createPatternLayer(chartOf: () => Chart) {
   }
 
   /** Takes a new cell size or mode, dropping what was drawn for the old ones. */
-  function configure(nextCell: number, nextMode: PatternMode) {
-    if (nextCell === cell && nextMode === mode) return
+  function configure(nextCell: CellSize, nextMode: PatternMode) {
+    if (nextCell.w === cell.w && nextCell.h === cell.h && nextMode === mode) return
     cell = nextCell
     mode = nextMode
-    tileCells = Math.max(1, Math.floor(TILE_PX / cell))
+    tileColumns = Math.max(1, Math.floor(TILE_PX / cell.w))
+    tileRows = Math.max(1, Math.floor(TILE_PX / cell.h))
     reset()
   }
 
@@ -59,9 +68,9 @@ export function createPatternLayer(chartOf: () => Chart) {
     stamp = null
     if (found?.pattern) {
       const ink = mode === 'pattern' ? 'black' : patternInk(found.color)
-      stamp = new OffscreenCanvas(cell, cell)
+      stamp = new OffscreenCanvas(cell.w, cell.h)
       const context = stamp.getContext('2d')
-      if (context) drawPrimitives(context, PATTERN_SHAPES[found.pattern], cell, cell, INK[ink])
+      if (context) drawPrimitives(context, PATTERN_SHAPES[found.pattern], cell.w, cell.h, INK[ink])
     }
     stamps.set(yarn, stamp)
     return stamp
@@ -69,17 +78,17 @@ export function createPatternLayer(chartOf: () => Chart) {
 
   function bake(column: number, row: number): OffscreenCanvas {
     const chart = chartOf()
-    const c0 = column * tileCells
-    const r0 = row * tileCells
-    const c1 = Math.min(chart.width, c0 + tileCells)
-    const r1 = Math.min(chart.height, r0 + tileCells)
-    const tile = new OffscreenCanvas((c1 - c0) * cell, (r1 - r0) * cell)
+    const c0 = column * tileColumns
+    const r0 = row * tileRows
+    const c1 = Math.min(chart.width, c0 + tileColumns)
+    const r1 = Math.min(chart.height, r0 + tileRows)
+    const tile = new OffscreenCanvas((c1 - c0) * cell.w, (r1 - r0) * cell.h)
     const context = tile.getContext('2d')
     if (!context) return tile
     for (let r = r0; r < r1; r++)
       for (let c = c0; c < c1; c++) {
         const stamp = stampOf(chart.cells[r * chart.width + c] ?? 0)
-        if (stamp) context.drawImage(stamp, (c - c0) * cell, (r - r0) * cell)
+        if (stamp) context.drawImage(stamp, (c - c0) * cell.w, (r - r0) * cell.h)
       }
     return tile
   }
@@ -94,34 +103,34 @@ export function createPatternLayer(chartOf: () => Chart) {
       for (const { index, after } of changes) {
         const c = index % width
         const r = (index - c) / width
-        const tile = tiles.get(`${Math.floor(c / tileCells)},${Math.floor(r / tileCells)}`)
+        const tile = tiles.get(`${Math.floor(c / tileColumns)},${Math.floor(r / tileRows)}`)
         const context = tile?.getContext('2d')
         if (!context) continue
-        const x = (c % tileCells) * cell
-        const y = (r % tileCells) * cell
-        context.clearRect(x, y, cell, cell)
+        const x = (c % tileColumns) * cell.w
+        const y = (r % tileRows) * cell.h
+        context.clearRect(x, y, cell.w, cell.h)
         const stamp = stampOf(after)
         if (stamp) context.drawImage(stamp, x, y)
       }
     },
 
     /**
-     * Draws the icons of the cells in range at a cell of `size` device px, the chart starting at
-     * (x0, y0); `false` when some tiles are left to bake on a later frame.
+     * Draws the icons of the cells in range at a cell of `size`, the chart starting at (x0, y0);
+     * `false` when some tiles are left to bake on a later frame.
      */
     draw(
       target: CanvasRenderingContext2D,
-      size: number,
+      size: CellSize,
       patternMode: PatternMode,
       x0: number,
       y0: number,
       { c0, c1, r0, r1 }: CellRange,
     ): boolean {
       configure(size, patternMode)
-      const tc0 = Math.floor(c0 / tileCells)
-      const tc1 = Math.ceil(c1 / tileCells)
-      const tr0 = Math.floor(r0 / tileCells)
-      const tr1 = Math.ceil(r1 / tileCells)
+      const tc0 = Math.floor(c0 / tileColumns)
+      const tc1 = Math.ceil(c1 / tileColumns)
+      const tr0 = Math.floor(r0 / tileRows)
+      const tr1 = Math.ceil(r1 / tileRows)
       const deadline = performance.now() + BAKE_BUDGET_MS
       let complete = true
       for (let row = tr0; row < tr1; row++)
@@ -135,7 +144,7 @@ export function createPatternLayer(chartOf: () => Chart) {
             continue
           }
           tiles.set(key, tile)
-          target.drawImage(tile, x0 + column * tileCells * cell, y0 + row * tileCells * cell)
+          target.drawImage(tile, x0 + column * tileColumns * cell.w, y0 + row * tileRows * cell.h)
         }
       // About two screens of tiles.
       const keep = 2 * (tc1 - tc0 + 1) * (tr1 - tr0 + 1)
@@ -149,7 +158,7 @@ export function createPatternLayer(chartOf: () => Chart) {
     /** Draws the icons of a yarn over the given cells in range, stamp by stamp (the gesture preview). */
     drawCells(
       target: CanvasRenderingContext2D,
-      size: number,
+      size: CellSize,
       patternMode: PatternMode,
       x0: number,
       y0: number,
@@ -165,7 +174,7 @@ export function createPatternLayer(chartOf: () => Chart) {
         const c = index % width
         const r = (index - c) / width
         if (c >= c0 && c < c1 && r >= r0 && r < r1)
-          target.drawImage(stamp, x0 + c * cell, y0 + r * cell)
+          target.drawImage(stamp, x0 + c * cell.w, y0 + r * cell.h)
       }
     },
   }

@@ -36,7 +36,8 @@ export function drawRuler(
   const along = axis === 'x' ? canvas.width : canvas.height
   const across = axis === 'x' ? canvas.height : canvas.width
   const count = axis === 'x' ? chart.width : chart.height
-  const cell = Math.round(viewport.cellSize * dpr)
+  // The cell side along the ruler: its width on ruler X, its height on ruler Y.
+  const cell = Math.round((axis === 'x' ? viewport.cellWidth : viewport.cellHeight) * dpr)
   const origin = Math.round((axis === 'x' ? viewport.originX : viewport.originY) * dpr)
   const { majorStep } = chart.properties
   const numberAt = (i: number) =>

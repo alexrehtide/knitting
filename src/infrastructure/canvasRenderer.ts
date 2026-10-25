@@ -4,7 +4,7 @@ import type { Chart } from '../domain/chart'
 import { isMajorGridLine } from '../domain/gridLines'
 import type { GridCell } from '../domain/numbering'
 import type { YarnId } from '../domain/palette'
-import { createPatternLayer, type CellRange, type PatternMode } from './patternLayer'
+import { createPatternLayer, type CellSize, type CellRange, type PatternMode } from './patternLayer'
 import { drawRuler } from './rulers'
 
 const OUTSIDE_COLOR = '#e4e4e7'
@@ -17,12 +17,12 @@ const OUTLINE_COLOR = 'rgb(79, 70, 229)'
 // Yarn cells in «узор»: the icon is black over a white cell.
 const PLAIN_COLOR = '#ffffff'
 
-// Thresholds by cell size in CSS px (#5): below 2 — colour only; from 2 — major lines; from 4 — every line;
-// from 8 — fill patterns, below it «узор» shows the yarn colours.
+// Thresholds by the shorter cell side in CSS px (#5): below 2 — colour only; from 2 — major lines;
+// from 4 — every line; from 8 — fill patterns, below it «узор» shows the yarn colours.
 const MAJOR_LINES_FROM = 2
 const ALL_LINES_FROM = 4
 const PATTERNS_FROM = 8
-// Below this many device px (e.g. 500×500 fitted) a hatch line cannot be drawn inside a cell,
+// Below this many device px on the shorter side (e.g. 500×500 fitted) a hatch line cannot be drawn inside a cell,
 // so empty cells get a flat fill in the hatch's light grey, still unlike any yarn colour.
 const HATCH_FROM_DEVICE_PX = 4
 
@@ -43,6 +43,7 @@ export interface ChartCanvases {
  * and «цвет+узор» the pattern layer puts the icons over it from a cell of 8 CSS px; in «узор» the
  * bitmap then has white yarn cells. A cell patch repaints the changed cells of the bitmap and of the
  * cached tiles; a palette patch and `replaced` rebuild the bitmap and drop the tiles.
+ * A property patch (numbering, major step, cell aspect) redraws the grid lines and the rulers.
  * The overlay and the rulers follow the viewport and the hovered cell; a hover redraws them alone.
  */
 export function createCanvasRenderer(
@@ -56,11 +57,11 @@ export function createCanvasRenderer(
   const rulerY = context2d(canvases.rulerY, { alpha: false })
 
   let dpr = 1
-  let viewport: Viewport = { cellSize: 1, originX: 0, originY: 0 }
+  let viewport: Viewport = { cellWidth: 1, cellHeight: 1, originX: 0, originY: 0 }
   let hover: Hover = { cell: null, lines: false }
   let frame = 0
   const dirty = { chart: false, marks: false }
-  let hatch: { size: number; pattern: CanvasPattern | string } | null = null
+  let hatch: { cell: CellSize; pattern: CanvasPattern | string } | null = null
 
   let displayMode: DisplayMode = session.state.displayMode
   // The bitmap has white yarn cells: «узор» with the patterns shown.
@@ -82,11 +83,11 @@ export function createCanvasRenderer(
         bitmap = createBitmap(session.state.chart, whiteYarnCells)
         patterns.reset()
         preview = null
-      } else {
+      } else if (event.patch.kind === 'cells') {
         bitmap.paint(event.patch.cells)
         patterns.paint(event.patch.cells)
       }
-      schedule({ chart: true })
+      schedule({ chart: true, marks: event.patch.kind === 'properties' })
     } else if (event.type === 'preview') {
       showPreview()
       schedule({ marks: true })
@@ -133,9 +134,14 @@ export function createCanvasRenderer(
     }
   }
 
-  /** The icons shown at a cell of this many device px, or `null` for colours only. */
-  function patternMode(cell: number): PatternMode | null {
-    return displayMode !== 'color' && cell / dpr >= PATTERNS_FROM ? displayMode : null
+  /** The cell in device px, as drawn now. */
+  function deviceCell(): CellSize {
+    return { w: Math.round(viewport.cellWidth * dpr), h: Math.round(viewport.cellHeight * dpr) }
+  }
+
+  /** The icons shown at a cell of this size, or `null` for colours only. */
+  function patternMode(cell: CellSize): PatternMode | null {
+    return displayMode !== 'color' && shorter(cell) / dpr >= PATTERNS_FROM ? displayMode : null
   }
 
   /** Remakes the chart and preview bitmaps when their yarn cells go white or back to the yarn colours. */
@@ -151,7 +157,7 @@ export function createCanvasRenderer(
   function drawChart() {
     const { chart } = session.state
     const { width, height } = chart
-    const cell = Math.round(viewport.cellSize * dpr)
+    const cell = deviceCell()
     const x0 = Math.round(viewport.originX * dpr)
     const y0 = Math.round(viewport.originY * dpr)
 
@@ -167,7 +173,7 @@ export function createCanvasRenderer(
     const { c0, c1, r0, r1 } = range
 
     ctx.fillStyle = hatchPattern(cell, x0, y0)
-    ctx.fillRect(x0 + c0 * cell, y0 + r0 * cell, (c1 - c0) * cell, (r1 - r0) * cell)
+    ctx.fillRect(x0 + c0 * cell.w, y0 + r0 * cell.h, (c1 - c0) * cell.w, (r1 - r0) * cell.h)
 
     drawCells(ctx, bitmap, cell, x0, y0, range)
     // Tiles left to bake come on the next frames; until then their cells show without icons.
@@ -176,11 +182,11 @@ export function createCanvasRenderer(
   }
 
   /** The chart cells that fall on the canvas, as half-open column and row ranges; `null` when none do. */
-  function visibleRange(width: number, height: number, cell: number, x0: number, y0: number) {
-    const c0 = Math.max(0, Math.floor(-x0 / cell))
-    const c1 = Math.min(width, Math.ceil((canvas.width - x0) / cell))
-    const r0 = Math.max(0, Math.floor(-y0 / cell))
-    const r1 = Math.min(height, Math.ceil((canvas.height - y0) / cell))
+  function visibleRange(width: number, height: number, cell: CellSize, x0: number, y0: number) {
+    const c0 = Math.max(0, Math.floor(-x0 / cell.w))
+    const c1 = Math.min(width, Math.ceil((canvas.width - x0) / cell.w))
+    const r0 = Math.max(0, Math.floor(-y0 / cell.h))
+    const r1 = Math.min(height, Math.ceil((canvas.height - y0) / cell.h))
     return c0 < c1 && r0 < r1 ? { c0, c1, r0, r1 } : null
   }
 
@@ -191,15 +197,25 @@ export function createCanvasRenderer(
   function drawCells(
     target: CanvasRenderingContext2D,
     source: Bitmap,
-    cell: number,
+    cell: CellSize,
     x0: number,
     y0: number,
     { c0, c1, r0, r1 }: CellRange,
   ) {
-    const w = (c1 - c0) * cell
-    const h = (r1 - r0) * cell
+    const w = (c1 - c0) * cell.w
+    const h = (r1 - r0) * cell.h
     target.imageSmoothingEnabled = false
-    target.drawImage(source.canvas, c0, r0, c1 - c0, r1 - r0, x0 + c0 * cell, y0 + r0 * cell, w, h)
+    target.drawImage(
+      source.canvas,
+      c0,
+      r0,
+      c1 - c0,
+      r1 - r0,
+      x0 + c0 * cell.w,
+      y0 + r0 * cell.h,
+      w,
+      h,
+    )
   }
 
   function drawMarks() {
@@ -217,7 +233,7 @@ export function createCanvasRenderer(
   function drawOverlay(chart: Chart, cell: GridCell | null) {
     overlay.setTransform(1, 0, 0, 1, 0, 0)
     overlay.clearRect(0, 0, overlay.canvas.width, overlay.canvas.height)
-    const size = Math.round(viewport.cellSize * dpr)
+    const size = deviceCell()
     const x0 = Math.round(viewport.originX * dpr)
     const y0 = Math.round(viewport.originY * dpr)
     const range = visibleRange(chart.width, chart.height, size, x0, y0)
@@ -232,38 +248,38 @@ export function createCanvasRenderer(
       overlay.globalCompositeOperation = 'source-over'
     }
     if (!cell) return
-    const left = x0 + cell.column * size
-    const top = y0 + cell.row * size
+    const left = x0 + cell.column * size.w
+    const top = y0 + cell.row * size.h
     if (hover.lines) {
       overlay.fillStyle = HIGHLIGHT_COLOR
       // One path filled by the nonzero rule, so the crossing cell is not tinted twice.
       overlay.beginPath()
-      overlay.rect(x0, top, chart.width * size, size)
-      overlay.rect(left, y0, size, chart.height * size)
+      overlay.rect(x0, top, chart.width * size.w, size.h)
+      overlay.rect(left, y0, size.w, chart.height * size.h)
       overlay.fill()
     }
     // A thin outline inside the cell, so it does not hide the neighbours.
     const line = Math.max(1, Math.round(dpr))
     overlay.strokeStyle = OUTLINE_COLOR
     overlay.lineWidth = line
-    overlay.strokeRect(left + line / 2, top + line / 2, size - line, size - line)
+    overlay.strokeRect(left + line / 2, top + line / 2, size.w - line, size.h - line)
   }
 
-  function hatchPattern(cell: number, x0: number, y0: number): CanvasPattern | string {
-    if (cell < HATCH_FROM_DEVICE_PX) return EMPTY_COLOR
-    if (hatch?.size !== cell) {
-      const tile = new OffscreenCanvas(cell, cell)
+  function hatchPattern(cell: CellSize, x0: number, y0: number): CanvasPattern | string {
+    if (shorter(cell) < HATCH_FROM_DEVICE_PX) return EMPTY_COLOR
+    if (hatch?.cell.w !== cell.w || hatch.cell.h !== cell.h) {
+      const tile = new OffscreenCanvas(cell.w, cell.h)
       const t = tile.getContext('2d')
       if (!t) return EMPTY_COLOR
       t.fillStyle = EMPTY_COLOR
-      t.fillRect(0, 0, cell, cell)
+      t.fillRect(0, 0, cell.w, cell.h)
       t.strokeStyle = EMPTY_HATCH_COLOR
-      t.lineWidth = Math.max(1, Math.round(cell / 16))
+      t.lineWidth = Math.max(1, Math.round(shorter(cell) / 16))
       t.beginPath()
-      t.moveTo(0, cell)
-      t.lineTo(cell, 0)
+      t.moveTo(0, cell.h)
+      t.lineTo(cell.w, 0)
       t.stroke()
-      hatch = { size: cell, pattern: ctx.createPattern(tile, 'repeat') ?? EMPTY_COLOR }
+      hatch = { cell, pattern: ctx.createPattern(tile, 'repeat') ?? EMPTY_COLOR }
     }
     if (typeof hatch.pattern !== 'string')
       hatch.pattern.setTransform(new DOMMatrix([1, 0, 0, 1, x0, y0]))
@@ -273,20 +289,20 @@ export function createCanvasRenderer(
   function drawGrid(
     target: CanvasRenderingContext2D,
     chart: Chart,
-    cell: number,
+    cell: CellSize,
     x0: number,
     y0: number,
     { c0, c1, r0, r1 }: CellRange,
   ) {
-    const cssCell = cell / dpr
+    const cssCell = shorter(cell) / dpr
     if (cssCell < MAJOR_LINES_FROM) return
     const isMajorX = (c: number) => isMajorGridLine(chart, 'vertical', c)
     const isMajorY = (r: number) => isMajorGridLine(chart, 'horizontal', r)
 
-    const top = y0 + r0 * cell
-    const bottom = y0 + r1 * cell
-    const left = x0 + c0 * cell
-    const right = x0 + c1 * cell
+    const top = y0 + r0 * cell.h
+    const bottom = y0 + r1 * cell.h
+    const left = x0 + c0 * cell.w
+    const right = x0 + c1 * cell.w
     const majorWidth = Math.max(2, Math.round(dpr * 1.5))
     const half = Math.floor(majorWidth / 2)
 
@@ -294,9 +310,9 @@ export function createCanvasRenderer(
       target.fillStyle = MINOR_LINE_COLOR
       target.beginPath()
       for (let c = c0; c <= c1; c++)
-        if (!isMajorX(c)) target.rect(x0 + c * cell, top, 1, bottom - top)
+        if (!isMajorX(c)) target.rect(x0 + c * cell.w, top, 1, bottom - top)
       for (let r = r0; r <= r1; r++)
-        if (!isMajorY(r)) target.rect(left, y0 + r * cell, right - left, 1)
+        if (!isMajorY(r)) target.rect(left, y0 + r * cell.h, right - left, 1)
       target.fill()
     }
 
@@ -304,11 +320,11 @@ export function createCanvasRenderer(
     target.beginPath()
     for (let c = c0; c <= c1; c++) {
       if (isMajorX(c))
-        target.rect(x0 + c * cell - half, top - half, majorWidth, bottom - top + majorWidth)
+        target.rect(x0 + c * cell.w - half, top - half, majorWidth, bottom - top + majorWidth)
     }
     for (let r = r0; r <= r1; r++) {
       if (isMajorY(r))
-        target.rect(left - half, y0 + r * cell - half, right - left + majorWidth, majorWidth)
+        target.rect(left - half, y0 + r * cell.h - half, right - left + majorWidth, majorWidth)
     }
     target.fill()
   }
@@ -353,6 +369,8 @@ function context2d(canvas: HTMLCanvasElement, options?: CanvasRenderingContext2D
   if (!context) throw new Error('Canvas 2D is unavailable')
   return context
 }
+
+const shorter = (cell: CellSize) => Math.min(cell.w, cell.h)
 
 type Bitmap = ReturnType<typeof createBitmap>
 
