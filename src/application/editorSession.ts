@@ -5,6 +5,7 @@ import { lineCells, snapLineEnd } from '../domain/line'
 import type { GridCell } from '../domain/numbering'
 import {
   addYarn,
+  moveYarn,
   parseYarnColor,
   removeYarn,
   updateYarn,
@@ -115,6 +116,7 @@ export type EditorEvent =
  * picker drag is one edit.
  * `replace-yarn` puts `replacement` (0 — empty) in every cell of the yarn; `remove-yarn` with a
  * `replacement` does that and removes the yarn as one edit, and a used yarn is removed only so.
+ * `move-yarn` puts the yarn at `position` (0-based) in the palette as one edit; the grid stays as it is.
  * `mark-saved` — the chart as it is now went to a `.kchart` file; `replace-chart` counts as saved too,
  * unless `unsavedToFile` says the chart has changes not in a file (one restored from the autosave):
  * then only saving clears the mark, as there is no history to undo back to a saved chart.
@@ -144,6 +146,7 @@ export type EditorCommand =
     }
   | { readonly type: 'replace-yarn'; readonly yarn: YarnId; readonly replacement: YarnId }
   | { readonly type: 'remove-yarn'; readonly yarn: YarnId; readonly replacement?: YarnId }
+  | { readonly type: 'move-yarn'; readonly yarn: YarnId; readonly position: number }
   | { readonly type: 'undo' }
   | { readonly type: 'redo' }
   | { readonly type: 'mark-saved' }
@@ -565,6 +568,12 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
         update({ currentYarn: selection.current, previousYarn: selection.previous })
         record(patch)
         apply(patch)
+        break
+      }
+      case 'move-yarn': {
+        const { palette } = state.chart
+        const moved = moveYarn(palette, command.yarn, command.position)
+        if (moved !== palette) editPalette(moved)
         break
       }
       case 'undo': {

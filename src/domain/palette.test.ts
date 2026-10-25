@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   addYarn,
+  moveYarn,
   parseYarnColor,
   patternClashCount,
   patternUses,
@@ -84,6 +85,25 @@ describe('fill pattern of a new yarn', () => {
 describe('removeYarn', () => {
   it('drops the yarn and keeps the order of the rest', () => {
     expect(removeYarn([yarn(1), yarn(2), yarn(3)], 2).map((y) => y.id)).toEqual([1, 3])
+  })
+})
+
+describe('moveYarn', () => {
+  it('puts the yarn at the position and shifts the yarns between', () => {
+    const palette = [yarn(1), yarn(2), yarn(3), yarn(4)]
+
+    expect(moveYarn(palette, 3, 0).map((y) => y.id)).toEqual([3, 1, 2, 4])
+    expect(moveYarn(palette, 1, 2).map((y) => y.id)).toEqual([2, 3, 1, 4])
+    expect(moveYarn(palette, 2, 3).map((y) => y.id)).toEqual([1, 3, 4, 2])
+  })
+
+  it('gives the same palette back for its own position, a position off the list and an unknown yarn', () => {
+    const palette = [yarn(1), yarn(2), yarn(3)]
+
+    expect(moveYarn(palette, 2, 1)).toBe(palette)
+    expect(moveYarn(palette, 2, 3)).toBe(palette)
+    expect(moveYarn(palette, 2, -1)).toBe(palette)
+    expect(moveYarn(palette, 9, 0)).toBe(palette)
   })
 })
 

@@ -44,6 +44,19 @@ export function removeYarn(palette: Palette, id: YarnId): Palette {
 }
 
 /**
+ * The palette with the yarn at `position` (0-based) and the yarns between shifted by one; cells keep
+ * their ids, only the yarn numbers change (ADR-0004). The same palette comes back when there is
+ * nothing to move: the yarn is already there, the position is off the list, the yarn is not in it.
+ */
+export function moveYarn(palette: Palette, id: YarnId, position: number): Palette {
+  const from = palette.findIndex((y) => y.id === id)
+  if (from < 0 || from === position || position < 0 || position >= palette.length) return palette
+  const moved = palette.filter((y) => y.id !== id)
+  moved.splice(position, 0, palette[from]!)
+  return moved
+}
+
+/**
  * Why a yarn of the palette cannot be removed, or `null` if it can: the palette is never empty.
  * A used yarn can, with a replacement for its cells (yarnReplacement.ts).
  */

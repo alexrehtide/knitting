@@ -1,7 +1,30 @@
-import { expect, test } from '@playwright/test'
+import { readFile } from 'node:fs/promises'
+import { expect, test, type Page } from '@playwright/test'
 import { cellCenter, probe } from './chart'
 
 const RED = [255, 0, 0]
+
+/** «Сохранить в файл» from the menu; returns the downloaded document. */
+async function savedDocument(page: Page) {
+  const download = page.waitForEvent('download')
+  await page.getByRole('button', { name: 'Файл' }).click()
+  await page.getByRole('menuitem', { name: 'Сохранить в файл .kchart' }).click()
+  return JSON.parse(await readFile(await (await download).path(), 'utf-8')) as {
+    palette: { color: string }[]
+    grid: { rows: number[][] }
+  }
+}
+
+/** Presses the handle ⋮⋮ of the yarn and moves the pointer to the top quarter of the row `to`. */
+async function dragYarn(page: Page, number: number, to: number) {
+  const rows = page.getByRole('list', { name: 'Нити палитры' }).getByRole('listitem')
+  const handle = await page.getByLabel(`Переставить нить ${number}`).boundingBox()
+  const target = await rows.nth(to - 1).boundingBox()
+  if (!handle || !target) throw new Error('No palette rows')
+  await page.mouse.move(handle.x + handle.width / 2, handle.y + handle.height / 2)
+  await page.mouse.down()
+  await page.mouse.move(target.x + target.width / 2, target.y + target.height / 4, { steps: 5 })
+}
 
 test('a new yarn with a hex colour paints the chart; its row counts the stitches', async ({
   page,
@@ -92,4 +115,39 @@ test('the eyedropper takes the yarn of a cell and gives the brush back', async (
 
   await expect(page.getByText('Нить: 2')).toBeVisible()
   await expect(page.getByText('Инструмент: Кисть')).toBeVisible()
+})
+
+test('dragging yarn 2 above yarn 1 swaps their numbers in the file; the canvas stays the same', async ({
+  page,
+}) => {
+  await page.goto('./')
+  const palette = page.getByRole('list', { name: 'Нити палитры' })
+  const white = await cellCenter(page, 1, 1)
+  await page.mouse.click(white.x, white.y)
+  const black = await cellCenter(page, 1, 2)
+  await page.mouse.click(black.x, black.y, { button: 'right' })
+  await expect.poll(() => probe(page, black)).toEqual([0, 0, 0])
+  const before = await savedDocument(page)
+
+  // Esc lets go of the yarn where it was.
+  await dragYarn(page, 2, 1)
+  await expect(page.getByTestId('drop-indicator')).toBeVisible()
+  await page.keyboard.press('Escape')
+  await page.mouse.up()
+  await expect(page.getByTestId('drop-indicator')).toBeHidden()
+  await expect(palette.getByRole('listitem').nth(0)).toContainText('1 петля')
+
+  await dragYarn(page, 2, 1)
+  await page.mouse.up()
+
+  await expect(page.getByText('Нить: 2')).toBeVisible()
+  const after = await savedDocument(page)
+  expect(after.palette.map((y) => y.color)).toEqual(before.palette.map((y) => y.color).reverse())
+  // Rows are [yarn, count, …]: every yarn number 1 becomes 2 and 2 becomes 1.
+  const swapped = before.grid.rows.map((row) =>
+    row.map((value, i) => (i % 2 === 0 && value > 0 ? 3 - value : value)),
+  )
+  expect(after.grid.rows).toEqual(swapped)
+  expect(await probe(page, white)).toEqual([255, 255, 255])
+  expect(await probe(page, black)).toEqual([0, 0, 0])
 })

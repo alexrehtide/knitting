@@ -1201,6 +1201,55 @@ describe('palette edits', () => {
   })
 })
 
+describe('yarn reordering', () => {
+  it('moves a yarn to a position as one edit, the grid byte for byte the same; undo gives the order back', () => {
+    const session = smallSession()
+    const yarn3 = addYarn(session)
+    stroke(session, [{ row: 0, column: 0 }])
+    stroke(session, [{ row: 1, column: 1 }], 'secondary')
+    session.dispatch({ type: 'select-yarn', yarn: yarn3 })
+    stroke(session, [{ row: 2, column: 2 }])
+    const cells = session.state.chart.cells.slice()
+
+    session.dispatch({ type: 'move-yarn', yarn: yarn3, position: 0 })
+
+    expect(paletteIds(session)).toEqual([yarn3, 1, 2])
+    expect(session.state.chart.cells).toEqual(cells)
+    session.dispatch({ type: 'undo' })
+    expect(paletteIds(session)).toEqual([1, 2, yarn3])
+    session.dispatch({ type: 'redo' })
+    expect(paletteIds(session)).toEqual([yarn3, 1, 2])
+  })
+
+  it('keeps the current and the previous yarn, now under their new numbers', () => {
+    const session = smallSession()
+    const yarn3 = addYarn(session)
+    session.dispatch({ type: 'select-yarn', yarn: yarn3 })
+
+    session.dispatch({ type: 'move-yarn', yarn: yarn3, position: 0 })
+
+    expect(session.state).toMatchObject({ currentYarn: yarn3, previousYarn: 1 })
+    // What the key of a number does: picks the yarn at that place in the palette.
+    const byNumber = (n: number) =>
+      session.dispatch({ type: 'select-yarn', yarn: session.state.chart.palette[n - 1]!.id })
+    byNumber(3)
+    expect(session.state.currentYarn).toBe(2)
+    byNumber(1)
+    expect(session.state.currentYarn).toBe(yarn3)
+  })
+
+  it('makes no edit for a drop on the place the yarn is at', () => {
+    const session = smallSession()
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({ type: 'move-yarn', yarn: 2, position: 1 })
+
+    expect(session.state.canUndo).toBe(false)
+    expect(events).toEqual([])
+  })
+})
+
 describe('stitch counts', () => {
   it('follow a stroke, its undo and its redo', () => {
     const session = smallSession()
