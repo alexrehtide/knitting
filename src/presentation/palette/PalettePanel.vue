@@ -43,42 +43,62 @@ function openReplacement(next: ReplacedYarn) {
 }
 
 /**
- * A yarn dragged by its handle ⋮⋮: `gap` is where it goes, the gap before row `gap` (0-based),
- * `rows.length` for after the last row. The session ignores the drop during a chart gesture by itself.
+ * A yarn dragged by its handle ⋮⋮: `gap` is where a drop puts it, the gap before row `gap` (0-based),
+ * `rows.length` for after the last row; `null` while the pointer is beside the list or the drop would
+ * leave the yarn where it is. The session ignores the drop during a chart gesture by itself.
  */
-const drag = ref<{ pointerId: number; yarn: YarnId; from: number; gap: number } | null>(null)
+const drag = ref<{
+  pointerId: number
+  handle: Element
+  yarn: YarnId
+  gap: number | null
+} | null>(null)
 const list = useTemplateRef('list')
 
-function startDrag(event: PointerEvent, yarn: YarnId, from: number) {
+/** The yarn's place in the palette now, read on each move, as an undo may change it during the drag. */
+const indexOf = (yarn: YarnId) => rows.value.findIndex((row) => row.yarn.id === yarn)
+
+function startDrag(event: PointerEvent, yarn: YarnId) {
   if (event.button !== 0 || drag.value) return
   event.preventDefault()
-  ;(event.currentTarget as Element).setPointerCapture(event.pointerId)
-  drag.value = { pointerId: event.pointerId, yarn, from, gap: from }
+  const handle = event.currentTarget as Element
+  handle.setPointerCapture(event.pointerId)
+  drag.value = { pointerId: event.pointerId, handle, yarn, gap: null }
   window.addEventListener('keydown', onDragKey, true)
+  window.addEventListener('blur', stopDrag)
 }
 
 /** The gap whose rows above have their middle above the pointer. */
 function moveDrag(event: PointerEvent) {
   if (drag.value?.pointerId !== event.pointerId || !list.value) return
+  const { left, right } = list.value.getBoundingClientRect()
   const items = [...list.value.children].filter((el) => el.tagName === 'LI')
   const gap = items.filter((el) => {
     const { top, height } = el.getBoundingClientRect()
     return top + height / 2 < event.clientY
   }).length
-  drag.value = { ...drag.value, gap }
+  const from = indexOf(drag.value.yarn)
+  const beside = event.clientX < left || event.clientX > right
+  drag.value = { ...drag.value, gap: beside || gap === from || gap === from + 1 ? null : gap }
 }
 
 function endDrag(event: PointerEvent, drop: boolean) {
   if (drag.value?.pointerId !== event.pointerId) return
-  const { yarn, from, gap } = drag.value
+  const { yarn, gap } = drag.value
   stopDrag()
+  if (!drop || gap === null) return
   // A gap below the yarn's own row counts the yarn itself, which leaves its place.
-  if (drop) dispatch({ type: 'move-yarn', yarn, position: gap > from ? gap - 1 : gap })
+  dispatch({ type: 'move-yarn', yarn, position: gap > indexOf(yarn) ? gap - 1 : gap })
 }
 
+/** Lets go of the yarn where it was. */
 function stopDrag() {
+  const ended = drag.value
   drag.value = null
   window.removeEventListener('keydown', onDragKey, true)
+  window.removeEventListener('blur', stopDrag)
+  if (ended?.handle.hasPointerCapture(ended.pointerId))
+    ended.handle.releasePointerCapture(ended.pointerId)
 }
 
 function onDragKey(event: KeyboardEvent) {
@@ -116,7 +136,8 @@ onScopeDispose(stopDrag)
         <!-- The insertion line: at the top of the row it goes before, at the bottom of the last row. -->
         <span
           v-if="drag && (drag.gap === i || (drag.gap === rows.length && i === rows.length - 1))"
-          data-testid="drop-indicator"
+          role="separator"
+          :aria-label="t('palette.dropHere')"
           class="pointer-events-none absolute inset-x-1 h-0.5 rounded-full bg-primary"
           :class="drag.gap === i ? '-top-px' : '-bottom-px'"
         />
@@ -126,7 +147,7 @@ onScopeDispose(stopDrag)
           :title="t('palette.dragHint')"
           class="relative z-10 flex h-6 w-4 shrink-0 cursor-grab touch-none items-center justify-center text-dimmed hover:text-default"
           :class="drag && 'cursor-grabbing'"
-          @pointerdown="startDrag($event, yarn.id, i)"
+          @pointerdown="startDrag($event, yarn.id)"
           @pointermove="moveDrag"
           @pointerup="endDrag($event, true)"
           @pointercancel="endDrag($event, false)"

@@ -128,13 +128,15 @@ test('dragging yarn 2 above yarn 1 swaps their numbers in the file; the canvas s
   await page.mouse.click(black.x, black.y, { button: 'right' })
   await expect.poll(() => probe(page, black)).toEqual([0, 0, 0])
   const before = await savedDocument(page)
+  const probes = [await probe(page, white), await probe(page, black)]
+  const indicator = palette.getByRole('separator', { name: 'Место вставки' })
 
   // Esc lets go of the yarn where it was.
   await dragYarn(page, 2, 1)
-  await expect(page.getByTestId('drop-indicator')).toBeVisible()
+  await expect(indicator).toBeVisible()
   await page.keyboard.press('Escape')
   await page.mouse.up()
-  await expect(page.getByTestId('drop-indicator')).toBeHidden()
+  await expect(indicator).toBeHidden()
   await expect(palette.getByRole('listitem').nth(0)).toContainText('1 петля')
 
   await dragYarn(page, 2, 1)
@@ -148,6 +150,12 @@ test('dragging yarn 2 above yarn 1 swaps their numbers in the file; the canvas s
     row.map((value, i) => (i % 2 === 0 && value > 0 ? 3 - value : value)),
   )
   expect(after.grid.rows).toEqual(swapped)
-  expect(await probe(page, white)).toEqual([255, 255, 255])
-  expect(await probe(page, black)).toEqual([0, 0, 0])
+  expect([await probe(page, white), await probe(page, black)]).toEqual(probes)
+
+  // Key 1 now takes the black yarn, which the brush paints.
+  await page.keyboard.press('Digit1')
+  await expect(page.getByText('Нить: 1')).toBeVisible()
+  const painted = await cellCenter(page, 2, 1)
+  await page.mouse.click(painted.x, painted.y)
+  await expect.poll(() => probe(page, painted)).toEqual([0, 0, 0])
 })
