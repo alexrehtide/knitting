@@ -1,7 +1,9 @@
+import { createChart } from '../domain/chart'
+import type { Clock } from '../domain/clock'
 import type { AutosaveLock } from './autosaveLock'
 import type { ChartFileFormat } from './chartFile'
 import type { Delay } from './delay'
-import type { EditorSession } from './editorSession'
+import { START_CHART_SIZE, type EditorSession } from './editorSession'
 
 /** How long after the last change the chart is written (docs/spec.md, «Автосохранение»). */
 export const AUTOSAVE_DELAY = 500
@@ -68,18 +70,22 @@ export function createAutosave({
   lock,
   format,
   delay,
+  clock,
 }: {
   session: EditorSession
   storage: AutosaveStorage
   lock: AutosaveLock
   format: ChartFileFormat
   delay: Delay
+  clock: Clock
 }): Autosave {
   let status: AutosaveStatus = 'saved'
   let brokenRecord: Autosave['brokenRecord'] = null
   let owner = false
   /** Stops taking the session's changes; set while this tab holds the lock. */
   let unsubscribe: (() => void) | null = null
+  /** The load of the stored chart in progress, or the last one: the lock goes only after it. */
+  let restoring = Promise.resolve()
   /** The chart has changed since the last write started. */
   let pending = false
   let writing = false
@@ -151,7 +157,10 @@ export function createAutosave({
     return result.ok ? { chart: result.chart, unsavedToFile } : null
   }
 
-  /** Loads the stored chart into the session, then writes its changes. */
+  /**
+   * Loads the stored chart into the session, then writes its changes. Without one the chart is a new
+   * empty one: a tab taking the lock back must not keep its own chart from before.
+   */
   async function restore() {
     let record: unknown
     try {
@@ -161,19 +170,26 @@ export function createAutosave({
       record = undefined
     }
     brokenRecord = null
-    if (record !== undefined) {
-      const chart = restored(record)
-      if (chart) {
-        session.dispatch({ type: 'replace-chart', ...chart })
-      } else {
-        brokenRecord = { record }
-        try {
-          await storage.moveToBroken(record)
-        } catch {
-          // The record is still offered for download.
-        }
+    const chart = record === undefined ? null : restored(record)
+    if (chart) {
+      session.dispatch({ type: 'replace-chart', ...chart })
+    } else {
+      session.dispatch({
+        type: 'replace-chart',
+        chart: createChart(START_CHART_SIZE, START_CHART_SIZE, clock.now()),
+      })
+    }
+    if (record !== undefined && !chart) {
+      brokenRecord = { record }
+      try {
+        await storage.moveToBroken(record)
+      } catch {
+        // The record is still offered for download.
       }
     }
+    // What this tab wrote before it let the lock go says nothing about the storage now.
+    failing = false
+    setStatus('saved')
     lastUnsavedToFile = session.state.unsavedToFile
     unsubscribe = session.subscribe((event) => {
       if (event.type === 'patch' || event.type === 'replaced') schedule()
@@ -186,6 +202,7 @@ export function createAutosave({
 
   /** Another tab takes the lock over: the chart as it is now is written before the lock goes. */
   async function release() {
+    await restoring
     owner = false
     emit({ type: 'owner' })
     // A gesture is not an edit until it ends: its cells go back, and the rollback is what gets written.
@@ -199,12 +216,19 @@ export function createAutosave({
   lock.onTakeOver(release)
 
   async function start() {
-    if (await lock.tryAcquire()) await restore()
+    let acquired: boolean
+    try {
+      acquired = await lock.tryAcquire()
+    } catch {
+      // A browser without the lock still edits, as one tab.
+      acquired = true
+    }
+    if (acquired) await (restoring = restore())
   }
 
   async function takeOver() {
     await lock.takeOver()
-    await restore()
+    await (restoring = restore())
   }
 
   return {
@@ -218,7 +242,8 @@ export function createAutosave({
       return brokenRecord
     },
     get unloadLoses() {
-      return status === 'failed' && session.state.unsavedToFile
+      // A tab without the lock has handed its chart over: closing it loses nothing more.
+      return owner && status === 'failed' && session.state.unsavedToFile
     },
     start,
     takeOver,

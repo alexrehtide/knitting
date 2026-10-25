@@ -172,8 +172,8 @@ test('a second tab waits under «Редактор открыт в другой �
   const second = await context.newPage()
   await second.goto('./')
   await expect(otherTab(second)).toBeVisible()
+  // The keys stay silent under the screen: the tool is still the brush once it is gone.
   await second.keyboard.press('KeyE')
-  await expect(status(second).getByText('Инструмент: Кисть')).toBeVisible()
 
   // Within the debounce: the first tab writes this edit as it lets the lock go.
   await paint(page, 1, 1)
@@ -182,7 +182,6 @@ test('a second tab waits under «Редактор открыт в другой �
   await expect(otherTab(second)).toBeHidden()
   await expect.poll(async () => probe(second, await cellCenter(second, 1, 1))).toEqual(WHITE)
   await expect(unsavedLabel(second)).toBeVisible()
+  await expect(status(second).getByText('Инструмент: Кисть')).toBeVisible()
   await expect(otherTab(page)).toBeVisible()
-  await page.keyboard.press('KeyE')
-  await expect(status(page).getByText('Инструмент: Кисть')).toBeVisible()
 })

@@ -6,10 +6,10 @@ import { createChart } from './domain/chart'
 import { isValidChartDimension } from './domain/chartSize'
 import { createCanvasRenderer } from './infrastructure/canvasRenderer'
 import { createIndexedDbAutosave } from './infrastructure/indexedDbAutosave'
-import { createWebLockAutosave } from './infrastructure/webLockAutosave'
 import { kchartFormat } from './infrastructure/kchart'
 import { systemClock } from './infrastructure/systemClock'
 import { systemDelay } from './infrastructure/systemDelay'
+import { createWebAutosaveLock } from './infrastructure/webAutosaveLock'
 import App from './presentation/App.vue'
 import {
   autosaveKey,
@@ -24,9 +24,10 @@ const session = createEditorSession({ clock: systemClock })
 const autosave = createAutosave({
   session,
   storage: createIndexedDbAutosave(),
-  lock: createWebLockAutosave(),
+  lock: createWebAutosaveLock(),
   format: kchartFormat,
   delay: systemDelay,
+  clock: systemClock,
 })
 
 document.addEventListener('visibilitychange', () => {

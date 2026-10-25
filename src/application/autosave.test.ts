@@ -12,7 +12,7 @@ import {
 import type { AutosaveLock } from './autosaveLock'
 import type { ChartFileFormat } from './chartFile'
 import type { Delay } from './delay'
-import { createEditorSession, type EditorSession } from './editorSession'
+import { START_CHART_SIZE, createEditorSession, type EditorSession } from './editorSession'
 
 const now = new Date('2026-10-25T10:00:00.000Z')
 const clock: Clock = { now: () => now }
@@ -79,9 +79,11 @@ function fakeStorage(stored?: unknown, log: string[] = []) {
 
 /** One lock for the tabs of a test, as Web Locks keep one for the tabs of a site. */
 function fakeLocks(log: string[] = []) {
-  let holder: { release?: () => Promise<void> } | null = null
+  /** A tab's side of the lock: what it does when another tab takes it over. */
+  type Holder = { release?: () => Promise<void> }
+  let holder: Holder | null = null
   function lock(): AutosaveLock {
-    const tab: { release?: () => Promise<void> } = {}
+    const tab: Holder = {}
     return {
       tryAcquire: async () => {
         if (holder) return false
@@ -148,7 +150,7 @@ function openTab(storage: AutosaveStorage, lock: AutosaveLock) {
   const session = createEditorSession({ clock })
   session.dispatch({ type: 'replace-chart', chart: createChart(10, 8, now) })
   const { delay, advance } = fakeDelay()
-  const autosave = createAutosave({ session, storage, lock, format, delay })
+  const autosave = createAutosave({ session, storage, lock, format, delay, clock })
   const events: AutosaveEvent[] = []
   autosave.subscribe((event) => events.push(event))
   return { session, autosave, advance, events }
@@ -177,7 +179,7 @@ describe('autosave writes', () => {
     advance(1)
     expect(writes).toHaveLength(1)
     expect(writes[0]!.record).toMatchObject({
-      document: { width: 10, height: 8, first: 1 },
+      document: { width: START_CHART_SIZE, height: START_CHART_SIZE, first: 1 },
       unsavedToFile: true,
     })
   })
@@ -312,10 +314,10 @@ describe('autosave status', () => {
 })
 
 describe('autosave restore', () => {
-  it('leaves the empty chart, clean, when nothing is stored', async () => {
+  it('gives an empty chart, clean, when nothing is stored', async () => {
     const { session, autosave, broken } = await setup(undefined)
 
-    expect(session.state.chart.width).toBe(10)
+    expect(session.state.chart.width).toBe(START_CHART_SIZE)
     expect(session.state.unsavedToFile).toBe(false)
     expect(autosave.brokenRecord).toBeNull()
     expect(broken).toEqual([])
@@ -345,7 +347,7 @@ describe('autosave restore', () => {
       expect(broken).toEqual([stored])
       expect(await storage.load()).toBeUndefined()
       expect(autosave.brokenRecord).toEqual({ record: stored })
-      expect(session.state.chart.width).toBe(10)
+      expect(session.state.chart.width).toBe(START_CHART_SIZE)
       expect(session.state.unsavedToFile).toBe(false)
     }
   })
@@ -419,6 +421,39 @@ describe('autosave in several tabs', () => {
     expect(second.autosave.owner).toBe(false)
     expect(first.session.state.chart.cells[5]).toBe(1)
     expect(first.session.state.chart.cells[0]).toBe(0)
+  })
+
+  it('a tab that takes the lock back when nothing is stored drops its own chart for an empty one', async () => {
+    const { writes, first, second } = twoTabs()
+    await first.autosave.start()
+    await second.autosave.start()
+    await second.autosave.takeOver()
+    paint(first.session, 1)
+
+    await first.autosave.takeOver()
+    expect(writes).toHaveLength(0)
+    expect(first.session.state.chart.width).toBe(START_CHART_SIZE)
+    expect(first.session.state.chart.cells[1]).toBe(0)
+    expect(first.session.state.unsavedToFile).toBe(false)
+  })
+
+  it('a tab whose last write failed does not warn on closing once the lock is gone, and starts clean when it takes it back', async () => {
+    const { writes, first, second } = twoTabs()
+    await first.autosave.start()
+    await second.autosave.start()
+    paint(first.session, 0)
+
+    const takeover = second.autosave.takeOver()
+    await settle()
+    writes[0]!.reject()
+    await takeover
+    expect(first.autosave.status).toBe('failed')
+    expect(first.session.state.unsavedToFile).toBe(true)
+    expect(first.autosave.unloadLoses).toBe(false)
+
+    await first.autosave.takeOver()
+    expect(first.autosave.status).toBe('saved')
+    expect(first.session.state.chart.width).toBe(START_CHART_SIZE)
   })
 
   it('a gesture in progress in the old tab is cancelled, not written', async () => {
