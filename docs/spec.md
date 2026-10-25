@@ -260,15 +260,35 @@
     - Узор описывается векторными примитивами в единичном квадрате клетки (отрезок, круг, окружность, многоугольник, ломаная; толщина в долях клетки). Одно описание рисуется в штамп клетки на canvas и в tiling pattern jsPDF (матрица «квадрат → клетка» в конструкторе `TilingPattern`). При пропорции клетки не 1:1 узор растягивается вместе с клеткой. Минимальная толщина линии — 1 device px на экране, 0,25 мм в PDF.
   - **application** — сценарии (рисовать, залить, заменить нить, изменить размер, undo/redo, импорт/экспорт) и порты (хранилище, файлы, PDF, PNG).
   - **infrastructure** — canvas-рендерер, IndexedDB, сериализация `.kchart`, генератор PDF (jsPDF, ленивая загрузка), PNG.
-  - **presentation** — Vue-компоненты; Pinia (если нужна) — тонкий мост между application и UI.
-- domain и application не импортируют Vue, DOM и canvas; границы слоёв проверяет линтер (`eslint-plugin-boundaries` или аналог).
+  - **presentation** — Vue-компоненты, реестр горячих клавиш, перевод пикселей холста в клетки. Pinia нет (ADR-0006).
+- Папки: `src/domain`, `src/application`, `src/infrastructure`, `src/presentation`; корень сборки — `src/main.ts`.
+- Импорты: domain — ничего; application → domain; infrastructure → application (реализует порты), domain; presentation → application, domain, но не infrastructure. Адаптеры (canvas-рендерер, IndexedDB, jsPDF, `Clock`) создаёт только `src/main.ts` и передаёт во Vue через `provide`.
+- Проверка границ (domain и application не импортируют Vue, DOM и canvas):
+  - `eslint-plugin-boundaries` по матрице импортов выше;
+  - `no-restricted-imports`: `vue`, `@nuxt/*`, `jspdf` запрещены в domain и application;
+  - `tsconfig.core.json` для domain + application с `lib: ["ES2023"]` без DOM — `document`, `window`, `HTMLCanvasElement` в ядре — ошибка типов;
+  - ESLint 9, flat config.
+
+### Сессия редактора (ADR-0006)
+- Один модуль application: `state` только для чтения, `dispatch(команда)` (правки, undo/redo, выбор инструмента и т. п.), `subscribe(listener)`.
+- События одного потока: `patch` — применённый патч (правка, undo, redo); `preview` — изменился предпросмотр жеста (только overlay); `replaced` — документ заменён целиком (открыт файл, импорт, новая схема).
+- Подписчики: composable `useEditor()` (`shallowRef` + счётчик версии), canvas-рендерер (по `patch` перерисовывает изменённые клетки, по `replaced` — всё), автосохранение (debounce по `patch`/`replaced`, `preview` игнорирует).
+- Жест ведёт сессия: получает `pointerDown/Move/Up/Cancel` в координатах клеток (ряд, петля, кнопка, Shift), держит предпросмотр и коммитит не более одной правки. Presentation переводит пиксели в клетки и клавиши в команды.
+- Ядро не возвращает текст: результаты и ошибки — типизированные коды (категории ошибок `.kchart`, «палитра полна», …); строки — только в словаре vue-i18n в presentation.
+- Время — через порт `Clock` (`now(): Date`); в Vitest — фиксированный адаптер.
 - Сетка — плоский типизированный массив (`Uint16Array`) стабильных id нитей; 0 — пустая клетка (ADR-0004). id выдаётся при создании нити — наименьший свободный ≥ 1; рендер и легенда сопоставляют id с нитью через таблицу.
 
 ### Качество
 - ESLint + Prettier, строгий TS.
-- Vitest: domain и application пишутся test-first.
-- Playwright: несколько e2e-сценариев (см. ниже).
-- CI в GitHub Actions на каждый PR: линт, типы, тесты, сборка.
+- Vitest: domain и application пишутся test-first; тесты лежат рядом с кодом (`grid.test.ts` рядом с `grid.ts`); порога покрытия нет.
+- Playwright: несколько e2e-сценариев (см. ниже) в `e2e/`; фикстуры — `fixtures/`.
+- pnpm (поле `packageManager`), Node 24 LTS (`.nvmrc`, `engines`).
+- `base: '/knitting/'` для `build` и `preview`, `/` для `dev`; константа в `vite.config.ts`. Роутера нет, `404.html` не нужен.
+- CI — один workflow GitHub Actions на PR и push в `main`:
+  - `check`: `eslint`, `prettier --check`, `vue-tsc --noEmit` по обоим tsconfig, `vitest run`;
+  - `e2e`: `vite build` → Playwright Chromium по `vite preview`; отчёт и сборка `dist` — артефакты;
+  - `deploy` (только `main`, после зелёных `check` и `e2e`): `actions/upload-pages-artifact` с `dist` из `e2e` + `actions/deploy-pages`, без пересборки.
+- Первая задача этапа 1 — ходячий скелет: оболочка раскладки на Nuxt UI без функций, папки слоёв с проверкой границ, один тест domain, e2e-смоук (страница открылась, есть холст с `aria-label` «Схема»), рабочие CI и деплой. Человек включает Pages (источник — GitHub Actions) и защиту `main` с обязательными `check` и `e2e`.
 
 ### E2E (Playwright)
 
