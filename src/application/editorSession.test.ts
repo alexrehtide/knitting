@@ -413,6 +413,19 @@ describe('unsaved to file', () => {
     expect(session.state.unsavedToFile).toBe(false)
   })
 
+  it('is kept for a chart restored from the autosave until it is saved; undo cannot clear it', () => {
+    const session = smallSession()
+
+    session.dispatch({ type: 'replace-chart', chart: createChart(10, 8, now), unsavedToFile: true })
+    expect(session.state.unsavedToFile).toBe(true)
+    stroke(session, [{ row: 0, column: 0 }])
+    session.dispatch({ type: 'undo' })
+    expect(session.state.unsavedToFile).toBe(true)
+
+    session.dispatch({ type: 'mark-saved' })
+    expect(session.state.unsavedToFile).toBe(false)
+  })
+
   it('tells subscribers when saving clears it, and stays quiet when there was nothing to clear', () => {
     const session = smallSession()
     stroke(session, [{ row: 0, column: 0 }])

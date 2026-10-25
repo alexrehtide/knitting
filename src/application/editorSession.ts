@@ -21,7 +21,9 @@ export const START_CHART_SIZE = 40
 /** Colour of a yarn added by «Добавить нить»; the user sets the real one in the yarn editor. */
 export const NEW_YARN_COLOR = '#808080'
 
-export type Tool = 'brush' | 'eraser' | 'eyedropper'
+export const TOOLS = ['brush', 'eraser', 'eyedropper'] as const
+
+export type Tool = (typeof TOOLS)[number]
 
 /** `primary` draws with the current yarn, `secondary` with the previous one. */
 export type PointerButton = 'primary' | 'secondary'
@@ -69,10 +71,12 @@ export type EditorEvent =
  * Yarn and palette commands are ignored during a gesture.
  * `update-yarn` with a `merge` key joins the last edit if it was made with the same key, so a colour
  * picker drag is one edit.
- * `mark-saved` — the chart as it is now went to a `.kchart` file; `replace-chart` counts as saved too.
+ * `mark-saved` — the chart as it is now went to a `.kchart` file; `replace-chart` counts as saved too,
+ * unless `unsavedToFile` says the chart has changes not in a file (one restored from the autosave):
+ * then only saving clears the mark, as there is no history to undo back to a saved chart.
  */
 export type EditorCommand =
-  | { readonly type: 'replace-chart'; readonly chart: Chart }
+  | { readonly type: 'replace-chart'; readonly chart: Chart; readonly unsavedToFile?: boolean }
   | { readonly type: 'select-tool'; readonly tool: Tool }
   | { readonly type: 'hold-eyedropper'; readonly held: boolean }
   | {
@@ -176,7 +180,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
       gestureActive: false,
       canUndo: false,
       canRedo: false,
-      unsavedToFile: false,
+      unsavedToFile: history.top !== savedTop,
       stitchCounts,
     }
   }
@@ -300,7 +304,8 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
         gesture = null
         mergeable = null
         history = createHistory()
-        savedTop = history.top
+        // A point that is never the history top.
+        savedTop = command.unsavedToFile ? {} : history.top
         state = withChart(command.chart, state.tool)
         emit({ type: 'replaced' })
         break

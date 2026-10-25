@@ -4,10 +4,12 @@ import { useI18n } from 'vue-i18n'
 import { ru as uiRu } from '@nuxt/ui/locale'
 import UApp from '@nuxt/ui/components/App.vue'
 import UTabs from '@nuxt/ui/components/Tabs.vue'
+import AutosaveStatus from './autosave/AutosaveStatus.vue'
 import ChartCanvas from './canvas/ChartCanvas.vue'
 import { useChartView } from './canvas/useChartView'
 import { provideCommands } from './commands/useCommands'
 import { useEditor } from './editor/useEditor'
+import { useViewPreferences } from './editor/useViewPreferences'
 import EditMenu from './menu/EditMenu.vue'
 import FileMenu from './menu/FileMenu.vue'
 import HelpMenu from './menu/HelpMenu.vue'
@@ -18,8 +20,9 @@ import ToolButtons from './tools/ToolButtons.vue'
 import YarnPair from './tools/YarnPair.vue'
 
 const { t } = useI18n()
-const { state } = useEditor()
+const { state, dispatch } = useEditor()
 const view = useChartView(state)
+useViewPreferences(view, state, dispatch)
 provideCommands()
 
 const currentYarn = computed(() => {
@@ -106,6 +109,7 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
           {{ t('status.yarn', { number: currentYarn.number }) }}
           <YarnSwatch :color="currentYarn.color" class="size-3" />
         </span>
+        <AutosaveStatus />
         <span v-if="state.unsavedToFile">{{ t('status.unsavedToFile') }}</span>
       </footer>
     </div>

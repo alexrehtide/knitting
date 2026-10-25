@@ -1,4 +1,5 @@
 import { inject, type InjectionKey } from 'vue'
+import type { Autosave } from '../../application/autosave'
 import type { ChartFileFormat } from '../../application/chartFile'
 import type { ChartRenderer } from '../../application/chartRenderer'
 import type { EditorSession } from '../../application/editorSession'
@@ -17,6 +18,7 @@ export type ChartRendererFactory = (canvases: ChartCanvases) => ChartRenderer
 export const editorSessionKey: InjectionKey<EditorSession> = Symbol('editorSession')
 export const chartRendererKey: InjectionKey<ChartRendererFactory> = Symbol('chartRenderer')
 export const chartFileFormatKey: InjectionKey<ChartFileFormat> = Symbol('chartFileFormat')
+export const autosaveKey: InjectionKey<Autosave> = Symbol('autosave')
 
 export function injectStrict<T>(key: InjectionKey<T>): T {
   const value = inject(key)

@@ -122,6 +122,8 @@ export function kchartFileName(chart: Chart): string {
 export const kchartFormat: ChartFileFormat = {
   write: (chart) => ({ name: kchartFileName(chart), text: writeKchart(chart) }),
   read: readKchart,
+  toDocument: toKchartDocument,
+  readDocument: readKchartDocument,
 }
 
 /** Imports a `.kchart` text; a byte order mark is allowed. */

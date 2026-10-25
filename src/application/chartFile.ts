@@ -35,8 +35,15 @@ export interface ChartFile {
   readonly text: string
 }
 
-/** The `.kchart` format, as the presentation saves and opens chart files (spec, «Файл схемы .kchart»). */
+/**
+ * The `.kchart` format, as the presentation saves and opens chart files (spec, «Файл схемы .kchart»),
+ * and as the autosave keeps the chart: the same document, as an object rather than text.
+ */
 export interface ChartFileFormat {
   write(chart: Chart): ChartFile
   read(text: string): KchartResult
+  /** The chart as a document of the current version, a plain object. */
+  toDocument(chart: Chart): object
+  /** Imports a parsed document: format, version, migrations and checks, as `read` after parsing. */
+  readDocument(document: unknown): KchartResult
 }
