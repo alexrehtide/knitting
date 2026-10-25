@@ -5,12 +5,15 @@ import UApp from '@nuxt/ui/components/App.vue'
 import UTabs from '@nuxt/ui/components/Tabs.vue'
 import ChartCanvas from './canvas/ChartCanvas.vue'
 import { useChartView } from './canvas/useChartView'
+import { provideCommands } from './commands/useCommands'
 import { useEditor } from './editor/useEditor'
+import HelpMenu from './menu/HelpMenu.vue'
 import ViewMenu from './menu/ViewMenu.vue'
 
 const { t } = useI18n()
 const { state } = useEditor()
 const view = useChartView(state)
+provideCommands()
 
 const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette' as const }]
 </script>
@@ -24,6 +27,7 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
       >
         <nav class="flex items-center gap-1">
           <ViewMenu :view="view" />
+          <HelpMenu />
         </nav>
         <h1 class="truncate text-sm font-medium">{{ t('chart.untitled') }}</h1>
         <div />

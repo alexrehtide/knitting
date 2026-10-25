@@ -16,6 +16,18 @@ export const ru = {
       zoomIn: 'Приблизить',
       zoomOut: 'Отдалить',
     },
+    help: {
+      title: 'Справка',
+      shortcuts: 'Горячие клавиши',
+    },
+  },
+  help: {
+    shortcuts: {
+      title: 'Горячие клавиши',
+      description: 'Клавиши работают в любой раскладке.',
+      keys: 'Клавиши',
+      command: 'Команда',
+    },
   },
   panel: {
     palette: 'Палитра',
