@@ -968,6 +968,22 @@ describe('palette edits', () => {
     expect(session.state.canUndo).toBe(false)
   })
 
+  it('changes a yarn pattern as one edit; undo gives the old one back, and «без узора» is null', () => {
+    const session = smallSession()
+
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { pattern: 'plus' } })
+    expect(session.state.chart.palette[1]?.pattern).toBe('plus')
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { pattern: null } })
+    expect(session.state.chart.palette[1]?.pattern).toBeNull()
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { pattern: null } })
+
+    session.dispatch({ type: 'undo' })
+    expect(session.state.chart.palette[1]?.pattern).toBe('plus')
+    session.dispatch({ type: 'undo' })
+    expect(session.state.chart.palette[1]?.pattern).toBe('circle-filled')
+    expect(session.state.canUndo).toBe(false)
+  })
+
   it('changes a yarn colour and name as edits and sends them as palette patches', () => {
     const session = smallSession()
     const events: EditorEvent[] = []

@@ -1,8 +1,11 @@
 <script setup lang="ts">
 import { computed, onScopeDispose } from 'vue'
 import { useI18n } from 'vue-i18n'
+import UAlert from '@nuxt/ui/components/Alert.vue'
 import UButton from '@nuxt/ui/components/Button.vue'
+import UIcon from '@nuxt/ui/components/Icon.vue'
 import { useToast } from '@nuxt/ui/composables/useToast'
+import { patternClashCount, patternUses } from '../../domain/palette'
 import { editorSessionKey, injectStrict } from '../editor/injection'
 import { useEditor } from '../editor/useEditor'
 import YarnEditor from './YarnEditor.vue'
@@ -18,20 +21,33 @@ onScopeDispose(
   }),
 )
 
-const rows = computed(() =>
-  state.value.chart.palette.map((yarn, i) => ({
+const rows = computed(() => {
+  const { palette } = state.value.chart
+  const uses = patternUses(palette)
+  return palette.map((yarn, i) => ({
     yarn,
     number: i + 1,
     stitches: state.value.stitchCounts.get(yarn.id) ?? 0,
-  })),
-)
+    clash: yarn.pattern !== null && (uses.get(yarn.pattern) ?? 0) > 1,
+  }))
+})
+const clashes = computed(() => patternClashCount(state.value.chart.palette))
 </script>
 
 <template>
   <div class="flex min-h-0 flex-1 flex-col">
+    <UAlert
+      v-if="clashes > 0"
+      color="warning"
+      variant="soft"
+      icon="i-lucide-triangle-alert"
+      :title="t('palette.clash', clashes)"
+      :description="t('palette.clashHint')"
+      class="m-2 mb-0 w-auto"
+    />
     <ul :aria-label="t('palette.list')" class="min-h-0 flex-1 overflow-y-auto p-2">
       <li
-        v-for="{ yarn, number, stitches } in rows"
+        v-for="{ yarn, number, stitches, clash } in rows"
         :key="yarn.id"
         class="relative flex items-center gap-2 rounded-md px-2 py-1 text-sm"
         :class="yarn.id === state.currentYarn ? 'bg-elevated' : 'hover:bg-elevated/50'"
@@ -58,6 +74,13 @@ const rows = computed(() =>
         <span class="pointer-events-none text-muted tabular-nums">{{
           t('palette.stitches', stitches)
         }}</span>
+        <!-- A fixed slot, so the counts stay in one column with and without the icon. -->
+        <span class="pointer-events-none flex size-4 shrink-0">
+          <!-- The icon itself is aria-hidden, so the label goes on its own wrapper. -->
+          <span v-if="clash" role="img" :aria-label="t('palette.yarnClash')" class="flex">
+            <UIcon name="i-lucide-triangle-alert" class="size-4 text-warning" />
+          </span>
+        </span>
       </li>
     </ul>
     <div class="border-t border-default p-2">

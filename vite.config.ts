@@ -14,7 +14,7 @@ export default defineConfig(({ command, isPreview }) => ({
       router: false,
       autoImport: false,
       components: false,
-      theme: { colors: ['primary', 'neutral', 'error'] },
+      theme: { colors: ['primary', 'neutral', 'warning', 'error'] },
       ui: { colors: { primary: 'indigo', neutral: 'zinc' } },
       icon: { clientBundle: { scan: true } },
       experimental: { componentDetection: true },

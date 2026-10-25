@@ -66,6 +66,10 @@ export const ru = {
     stitches: '0 петель | {n} петля | {n} петли | {n} петель',
     edit: 'Изменить нить {number}',
     add: 'Добавить нить',
+    clash:
+      'у 0 нитей совпадают узоры | у {n} нити совпадают узоры | у {n} нитей совпадают узоры | у {n} нитей совпадают узоры',
+    clashHint: 'На ч/б печати нити с одним узором не различить',
+    yarnClash: 'Узор совпадает с другой нитью',
     rejected: {
       'palette-full': 'Палитра полна: больше нитей добавить нельзя',
     },
@@ -75,6 +79,10 @@ export const ru = {
     hex: 'Цвет (hex)',
     hexInvalid: 'Нужен цвет вида #rrggbb',
     name: 'Имя или артикул',
+    pattern: 'Узор',
+    usedBy: '{pattern} — уже у {n} нит.',
+    clash: 'Этот узор есть ещё у {n} нит.',
+    clashHint: 'На ч/б печати эти нити не различить',
     remove: 'Удалить',
     blocked: {
       'last-yarn': 'Последнюю нить удалить нельзя',
@@ -121,6 +129,25 @@ export const ru = {
   },
   panel: {
     palette: 'Палитра',
+  },
+  pattern: {
+    none: 'Без узора',
+    cross: 'Крест',
+    'circle-filled': 'Точка',
+    'circle-outline': 'Кольцо',
+    plus: 'Плюс',
+    'square-filled': 'Квадрат',
+    'line-slash': 'Косая',
+    'triangle-up-outline': 'Треугольник',
+    'diamond-filled': 'Ромб',
+    'line-h': 'Черта',
+    'square-outline': 'Квадрат-контур',
+    'line-backslash': 'Обратная косая',
+    'triangle-down-filled': 'Треугольник вниз',
+    'line-v': 'Вертикаль',
+    'diamond-outline': 'Ромб-контур',
+    'circle-dot': 'Кольцо с точкой',
+    asterisk: 'Звёздочка',
   },
   status: {
     cell: 'ряд {row}, петля {stitch}',

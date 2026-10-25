@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest'
 import {
   addYarn,
   parseYarnColor,
+  patternClashCount,
+  patternUses,
   removeYarn,
   updateYarn,
   yarnRemovalBlock,
@@ -101,6 +103,43 @@ describe('updateYarn', () => {
 
     expect(updated).toEqual([yarn(1), { ...yarn(2), color: '#123456', name: 'Alize 55' }])
     expect(palette[1]?.color).toBe('#808080')
+  })
+
+  it('changes the pattern, and «без узора» is null', () => {
+    const palette = [yarn(1, 'cross'), yarn(2, 'circle-filled')]
+
+    expect(updateYarn(palette, 2, { pattern: 'plus' })[1]?.pattern).toBe('plus')
+    expect(updateYarn(palette, 2, { pattern: null })[1]?.pattern).toBeNull()
+  })
+})
+
+describe('patternUses', () => {
+  it('counts the yarns of each pattern and leaves «без узора» out', () => {
+    const uses = patternUses([yarn(1, 'cross'), yarn(2, 'cross'), yarn(3, null), yarn(4, 'plus')])
+
+    expect([...uses]).toEqual([
+      ['cross', 2],
+      ['plus', 1],
+    ])
+  })
+})
+
+describe('patternClashCount', () => {
+  it('counts every yarn whose pattern another yarn has too: two × and three ● are 5', () => {
+    const palette = [
+      yarn(1, 'cross'),
+      yarn(2, 'circle-filled'),
+      yarn(3, 'cross'),
+      yarn(4, 'circle-filled'),
+      yarn(5, 'plus'),
+      yarn(6, 'circle-filled'),
+    ]
+
+    expect(patternClashCount(palette)).toBe(5)
+  })
+
+  it('does not count yarns «без узора» as clashing', () => {
+    expect(patternClashCount([yarn(1, null), yarn(2, null), yarn(3, 'cross')])).toBe(0)
   })
 })
 

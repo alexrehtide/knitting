@@ -4,6 +4,7 @@ import { useI18n } from 'vue-i18n'
 import { ru as uiRu } from '@nuxt/ui/locale'
 import UApp from '@nuxt/ui/components/App.vue'
 import UTabs from '@nuxt/ui/components/Tabs.vue'
+import { patternClashCount } from '../domain/palette'
 import AutosaveStatus from './autosave/AutosaveStatus.vue'
 import OtherTabScreen from './autosave/OtherTabScreen.vue'
 import ChartCanvas from './canvas/ChartCanvas.vue'
@@ -33,7 +34,18 @@ const currentYarn = computed(() => {
   return { number: index + 1, color: palette[index]?.color ?? 'transparent' }
 })
 
-const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette' as const }]
+// The badge counts the yarns with a shared pattern, as the alert over the palette list.
+const panelTabs = computed(() => {
+  const clashes = patternClashCount(state.value.chart.palette)
+  return [
+    {
+      label: t('panel.palette'),
+      value: 'palette',
+      slot: 'palette' as const,
+      badge: clashes > 0 ? { label: String(clashes), color: 'warning' as const } : undefined,
+    },
+  ]
+})
 </script>
 
 <template>

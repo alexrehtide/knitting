@@ -1,6 +1,7 @@
 import { createChart, initialYarnSelection, repairYarnSelection, type Chart } from '../domain/chart'
 import type { Clock } from '../domain/clock'
 import { fillCells } from '../domain/fill'
+import type { FillPattern } from '../domain/fillPattern'
 import { lineCells, snapLineEnd } from '../domain/line'
 import type { GridCell } from '../domain/numbering'
 import {
@@ -124,7 +125,12 @@ export type EditorCommand =
   | {
       readonly type: 'update-yarn'
       readonly yarn: YarnId
-      readonly changes: { readonly color?: string; readonly name?: string }
+      readonly changes: {
+        readonly color?: string
+        /** `null` — «без узора». */
+        readonly pattern?: FillPattern | null
+        readonly name?: string
+      }
       readonly merge?: string
     }
   | { readonly type: 'remove-yarn'; readonly yarn: YarnId }
@@ -502,8 +508,9 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
         const color = changes.color === undefined ? old?.color : parseYarnColor(changes.color)
         const name = changes.name ?? old?.name
         if (!old || !color || name === undefined) break
-        if (color === old.color && name === old.name) break
-        editPalette(updateYarn(state.chart.palette, yarn, { color, name }), merge)
+        const pattern = changes.pattern === undefined ? old.pattern : changes.pattern
+        if (color === old.color && pattern === old.pattern && name === old.name) break
+        editPalette(updateYarn(state.chart.palette, yarn, { color, pattern, name }), merge)
         break
       }
       case 'remove-yarn': {

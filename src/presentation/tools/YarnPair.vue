@@ -52,10 +52,12 @@ useCommands([
     >
       <YarnSwatch
         :color="yarn(state.previousYarn)?.color ?? 'transparent'"
+        :pattern="yarn(state.previousYarn)?.pattern"
         class="absolute right-0 bottom-0 size-6"
       />
       <YarnSwatch
         :color="yarn(state.currentYarn)?.color ?? 'transparent'"
+        :pattern="yarn(state.currentYarn)?.pattern"
         class="absolute top-0 left-0 size-6 shadow-[0_0_0_2px_var(--ui-bg)]"
       />
     </button>

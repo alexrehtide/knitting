@@ -56,13 +56,32 @@ export function yarnRemovalBlock(
   return null
 }
 
-/** The palette with the yarn's colour or name changed, the yarn in the same place. */
+/** The palette with the yarn's colour, pattern or name changed, the yarn in the same place. */
 export function updateYarn(
   palette: Palette,
   id: YarnId,
-  changes: { readonly color?: string; readonly name?: string },
+  changes: {
+    readonly color?: string
+    readonly pattern?: FillPattern | null
+    readonly name?: string
+  },
 ): Palette {
   return palette.map((y) => (y.id === id ? { ...y, ...changes } : y))
+}
+
+/** How many yarns have each pattern; patterns nobody has and «без узора» are not in it. */
+export function patternUses(palette: Palette): ReadonlyMap<FillPattern, number> {
+  const uses = new Map<FillPattern, number>()
+  for (const y of palette)
+    if (y.pattern !== null) uses.set(y.pattern, (uses.get(y.pattern) ?? 0) + 1)
+  return uses
+}
+
+/** How many yarns share their pattern with another yarn, for the warning «у N нитей совпадают узоры». */
+export function patternClashCount(palette: Palette): number {
+  let count = 0
+  for (const uses of patternUses(palette).values()) if (uses > 1) count += uses
+  return count
 }
 
 /** `#rrggbb` or `#rgb` in any case, with or without `#`, as a yarn colour; `null` if it is not one. */
@@ -75,9 +94,7 @@ export function parseYarnColor(text: string): string | null {
 
 /** The first unused pattern in assignment order; if all are taken, the first of the least used. */
 function autoPattern(palette: Palette): FillPattern {
-  const uses = new Map<FillPattern, number>(FILL_PATTERNS.map((p) => [p, 0]))
-  for (const y of palette)
-    if (y.pattern !== null) uses.set(y.pattern, (uses.get(y.pattern) ?? 0) + 1)
+  const uses = patternUses(palette)
   let best: FillPattern = FILL_PATTERNS[0]
   for (const p of FILL_PATTERNS) if ((uses.get(p) ?? 0) < (uses.get(best) ?? 0)) best = p
   return best
