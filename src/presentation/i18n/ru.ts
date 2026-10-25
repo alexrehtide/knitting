@@ -9,8 +9,20 @@ export const ru = {
     sidePanel: 'Панель',
     statusBar: 'Статус',
   },
+  menu: {
+    view: {
+      title: 'Вид',
+      fit: 'Вписать',
+      zoomIn: 'Приблизить',
+      zoomOut: 'Отдалить',
+    },
+  },
   panel: {
     palette: 'Палитра',
+  },
+  status: {
+    size: 'Размер: {width} × {height}',
+    zoom: 'Масштаб: {percent}%',
   },
 }
 

@@ -3,8 +3,14 @@ import { useI18n } from 'vue-i18n'
 import { ru as uiRu } from '@nuxt/ui/locale'
 import UApp from '@nuxt/ui/components/App.vue'
 import UTabs from '@nuxt/ui/components/Tabs.vue'
+import ChartCanvas from './canvas/ChartCanvas.vue'
+import { useChartView } from './canvas/useChartView'
+import { useEditor } from './editor/useEditor'
+import ViewMenu from './menu/ViewMenu.vue'
 
 const { t } = useI18n()
+const { state } = useEditor()
+const view = useChartView(state)
 
 const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette' as const }]
 </script>
@@ -16,7 +22,9 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
         :aria-label="t('layout.menuBar')"
         class="grid h-10 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-default px-2"
       >
-        <nav />
+        <nav class="flex items-center gap-1">
+          <ViewMenu :view="view" />
+        </nav>
         <h1 class="truncate text-sm font-medium">{{ t('chart.untitled') }}</h1>
         <div />
       </header>
@@ -28,12 +36,7 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
         />
 
         <main class="relative min-w-0 flex-1 overflow-hidden bg-muted">
-          <canvas
-            role="img"
-            :aria-label="t('chart.canvasLabel')"
-            data-testid="chart-canvas"
-            class="absolute inset-0 size-full"
-          />
+          <ChartCanvas :view="view" />
         </main>
 
         <aside
@@ -49,7 +52,12 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
       <footer
         :aria-label="t('layout.statusBar')"
         class="flex h-7 shrink-0 items-center gap-4 border-t border-default px-3 text-xs text-muted"
-      />
+      >
+        <span>{{
+          t('status.size', { width: state.chart.width, height: state.chart.height })
+        }}</span>
+        <span>{{ t('status.zoom', { percent: view.zoomPercent.value }) }}</span>
+      </footer>
     </div>
   </UApp>
 </template>
