@@ -1,9 +1,10 @@
 import type { ChartRenderer, Hover, Viewport } from '../application/chartRenderer'
-import type { EditorEvent, EditorSession } from '../application/editorSession'
+import type { DisplayMode, EditorEvent, EditorSession } from '../application/editorSession'
 import type { Chart } from '../domain/chart'
 import { isMajorGridLine } from '../domain/gridLines'
 import type { GridCell } from '../domain/numbering'
 import type { YarnId } from '../domain/palette'
+import { createPatternLayer, type CellRange, type PatternMode } from './patternLayer'
 import { drawRuler } from './rulers'
 
 const OUTSIDE_COLOR = '#e4e4e7'
@@ -13,10 +14,14 @@ const MINOR_LINE_COLOR = 'rgba(113, 113, 122, 0.45)'
 const MAJOR_LINE_COLOR = 'rgba(39, 39, 42, 0.8)'
 const HIGHLIGHT_COLOR = 'rgba(79, 70, 229, 0.18)'
 const OUTLINE_COLOR = 'rgb(79, 70, 229)'
+// Yarn cells in «узор»: the icon is black over a white cell.
+const PLAIN_COLOR = '#ffffff'
 
-// Thresholds by cell size in CSS px (#5): below 2 — colour only; from 2 — major lines; from 4 — every line.
+// Thresholds by cell size in CSS px (#5): below 2 — colour only; from 2 — major lines; from 4 — every line;
+// from 8 — fill patterns, below it «узор» shows the yarn colours.
 const MAJOR_LINES_FROM = 2
 const ALL_LINES_FROM = 4
+const PATTERNS_FROM = 8
 // Below this many device px (e.g. 500×500 fitted) a hatch line cannot be drawn inside a cell,
 // so empty cells get a flat fill in the hatch's light grey, still unlike any yarn colour.
 const HATCH_FROM_DEVICE_PX = 4
@@ -33,9 +38,11 @@ export interface ChartCanvases {
 }
 
 /**
- * Draws the chart in «colour» mode: a W×H bitmap, one pixel per cell, scaled with `drawImage`
- * without smoothing; empty cells are transparent in it and show the «нет петли» hatch beneath.
- * A cell patch repaints the changed cells of the bitmap; a palette patch and `replaced` rebuild it.
+ * Draws the chart: a W×H bitmap, one pixel per cell, scaled with `drawImage` without smoothing; empty
+ * cells are transparent in it and show the «нет петли» hatch beneath in every display mode. In «узор»
+ * and «цвет+узор» the pattern layer puts the icons over it from a cell of 8 CSS px; in «узор» the
+ * bitmap then has white yarn cells. A cell patch repaints the changed cells of the bitmap and of the
+ * cached tiles; a palette patch and `replaced` rebuild the bitmap and drop the tiles.
  * The overlay and the rulers follow the viewport and the hovered cell; a hover redraws them alone.
  */
 export function createCanvasRenderer(
@@ -55,32 +62,47 @@ export function createCanvasRenderer(
   const dirty = { chart: false, marks: false }
   let hatch: { size: number; pattern: CanvasPattern | string } | null = null
 
-  let bitmap = createBitmap(session.state.chart)
+  let displayMode: DisplayMode = session.state.displayMode
+  // The bitmap has white yarn cells: «узор» with the patterns shown.
+  let whiteYarnCells = false
+  let bitmap = createBitmap(session.state.chart, whiteYarnCells)
+  const patterns = createPatternLayer(() => session.state.chart)
   // The gesture preview as a bitmap of its own, transparent but for its cells, drawn as the chart is.
   let preview: { bitmap: Bitmap; cells: readonly number[] } | null = null
 
   const unsubscribe = session.subscribe((event: EditorEvent) => {
     if (event.type === 'replaced') {
-      bitmap = createBitmap(session.state.chart)
+      bitmap = createBitmap(session.state.chart, whiteYarnCells)
+      patterns.reset()
       preview = null
       schedule({ chart: true, marks: true })
     } else if (event.type === 'patch') {
-      // A palette patch may recolour any cell, so the bitmap is made afresh.
+      // A palette patch may recolour any cell or change its pattern, so the bitmap is made afresh.
       if (event.patch.kind === 'palette') {
-        bitmap = createBitmap(session.state.chart)
+        bitmap = createBitmap(session.state.chart, whiteYarnCells)
+        patterns.reset()
         preview = null
-      } else bitmap.paint(event.patch.cells)
+      } else {
+        bitmap.paint(event.patch.cells)
+        patterns.paint(event.patch.cells)
+      }
       schedule({ chart: true })
     } else if (event.type === 'preview') {
       showPreview()
       schedule({ marks: true })
+    } else if (event.type === 'state' && session.state.displayMode !== displayMode) {
+      displayMode = session.state.displayMode
+      schedule({ chart: true, marks: true })
     }
   })
 
   function showPreview() {
     const { chart, preview: next } = session.state
     preview ??= {
-      bitmap: createBitmap({ ...chart, cells: new Uint16Array(chart.cells.length) }),
+      bitmap: createBitmap(
+        { ...chart, cells: new Uint16Array(chart.cells.length) },
+        whiteYarnCells,
+      ),
       cells: [],
     }
     const cells = next?.cells ?? []
@@ -98,12 +120,32 @@ export function createCanvasRenderer(
     if (frame === 0) frame = requestAnimationFrame(draw)
   }
 
+  // Each layer is clean before it is drawn, so drawing may mark it dirty again for the next frame.
   function draw() {
     frame = 0
-    if (dirty.chart) drawChart()
-    if (dirty.marks) drawMarks()
-    dirty.chart = false
-    dirty.marks = false
+    if (dirty.chart) {
+      dirty.chart = false
+      drawChart()
+    }
+    if (dirty.marks) {
+      dirty.marks = false
+      drawMarks()
+    }
+  }
+
+  /** The icons shown at a cell of this many device px, or `null` for colours only. */
+  function patternMode(cell: number): PatternMode | null {
+    return displayMode !== 'color' && cell / dpr >= PATTERNS_FROM ? displayMode : null
+  }
+
+  /** Remakes the chart and preview bitmaps when their yarn cells go white or back to the yarn colours. */
+  function recolorYarnCells(white: boolean) {
+    if (white === whiteYarnCells) return
+    whiteYarnCells = white
+    bitmap = createBitmap(session.state.chart, whiteYarnCells)
+    preview = null
+    if (session.state.preview) showPreview()
+    schedule({ marks: true })
   }
 
   function drawChart() {
@@ -117,6 +159,9 @@ export function createCanvasRenderer(
     ctx.fillStyle = OUTSIDE_COLOR
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
+    const mode = patternMode(cell)
+    recolorYarnCells(mode === 'pattern')
+
     const range = visibleRange(width, height, cell, x0, y0)
     if (!range) return
     const { c0, c1, r0, r1 } = range
@@ -125,6 +170,8 @@ export function createCanvasRenderer(
     ctx.fillRect(x0 + c0 * cell, y0 + r0 * cell, (c1 - c0) * cell, (r1 - r0) * cell)
 
     drawCells(ctx, bitmap, cell, x0, y0, range)
+    // Tiles left to bake come on the next frames; until then their cells show without icons.
+    if (mode && !patterns.draw(ctx, cell, mode, x0, y0, range)) schedule({ chart: true })
     drawGrid(ctx, chart, cell, x0, y0, range)
   }
 
@@ -176,6 +223,9 @@ export function createCanvasRenderer(
     const range = visibleRange(chart.width, chart.height, size, x0, y0)
     if (preview && preview.cells.length > 0 && range) {
       drawCells(overlay, preview.bitmap, size, x0, y0, range)
+      const mode = patternMode(size)
+      const yarn = session.state.preview?.yarn ?? 0
+      if (mode) patterns.drawCells(overlay, size, mode, x0, y0, preview.cells, yarn, range)
       // The grid lines over the preview cells only: elsewhere the chart canvas has them already.
       overlay.globalCompositeOperation = 'source-atop'
       drawGrid(overlay, chart, size, x0, y0, range)
@@ -304,25 +354,22 @@ function context2d(canvas: HTMLCanvasElement, options?: CanvasRenderingContext2D
   return context
 }
 
-/** Half-open column and row ranges of chart cells. */
-interface CellRange {
-  readonly c0: number
-  readonly c1: number
-  readonly r0: number
-  readonly r1: number
-}
-
 type Bitmap = ReturnType<typeof createBitmap>
 
-/** One pixel per cell; a yarn's colour or transparent for an empty cell. */
-function createBitmap(chart: Pick<Chart, 'width' | 'height' | 'cells' | 'palette'>) {
+/** One pixel per cell: a yarn's colour, or white for every yarn when `whiteYarnCells`; transparent for an empty cell. */
+function createBitmap(
+  chart: Pick<Chart, 'width' | 'height' | 'cells' | 'palette'>,
+  whiteYarnCells: boolean,
+) {
   const { width, height, cells } = chart
   const canvas = new OffscreenCanvas(width, height)
   const context = canvas.getContext('2d')
   if (!context) throw new Error('Canvas 2D is unavailable')
   const image = context.createImageData(width, height)
   const pixels = new Uint32Array(image.data.buffer)
-  const colors = new Map<YarnId, number>(chart.palette.map((y) => [y.id, packColor(y.color)]))
+  const colors = new Map<YarnId, number>(
+    chart.palette.map((y) => [y.id, packColor(whiteYarnCells ? PLAIN_COLOR : y.color)]),
+  )
   const colorOf = (id: YarnId) => (id === 0 ? 0 : (colors.get(id) ?? 0))
 
   for (let i = 0; i < cells.length; i++) pixels[i] = colorOf(cells[i] ?? 0)

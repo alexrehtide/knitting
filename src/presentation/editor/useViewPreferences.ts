@@ -1,6 +1,8 @@
 import { watch, type ShallowRef } from 'vue'
 import {
+  DISPLAY_MODES,
   TOOLS,
+  type DisplayMode,
   type EditorSession,
   type EditorState,
   type Tool,
@@ -11,6 +13,7 @@ import type { ChartView } from '../canvas/useChartView'
 export const VIEW_PREFERENCES_KEY = 'knitting.view'
 
 interface ViewPreferences {
+  readonly displayMode: DisplayMode
   readonly lineHighlight: boolean
   readonly tool: Tool
 }
@@ -24,8 +27,11 @@ function load(): Partial<ViewPreferences> {
     return {}
   }
   if (typeof stored !== 'object' || stored === null) return {}
-  const { lineHighlight, tool } = stored as Record<string, unknown>
+  const { displayMode, lineHighlight, tool } = stored as Record<string, unknown>
   return {
+    ...(DISPLAY_MODES.some((m) => m === displayMode)
+      ? { displayMode: displayMode as DisplayMode }
+      : {}),
     ...(typeof lineHighlight === 'boolean' ? { lineHighlight } : {}),
     ...(TOOLS.some((t) => t === tool) ? { tool: tool as Tool } : {}),
   }
@@ -40,7 +46,7 @@ function save(preferences: ViewPreferences) {
 }
 
 /**
- * Brings back the line highlight flag and the current tool, and keeps them as they change.
+ * Brings back the display mode, the line highlight flag and the current tool, and keeps them as they change.
  * The yarn, zoom and scroll are not kept: a reload starts with the first yarn and a fitted view.
  */
 export function useViewPreferences(
@@ -51,8 +57,11 @@ export function useViewPreferences(
   const stored = load()
   if (stored.lineHighlight !== undefined) view.setLineHighlight(stored.lineHighlight)
   if (stored.tool !== undefined) dispatch({ type: 'select-tool', tool: stored.tool })
+  if (stored.displayMode !== undefined)
+    dispatch({ type: 'select-display-mode', mode: stored.displayMode })
 
-  watch([view.lineHighlight, () => state.value.tool], ([lineHighlight, tool]) =>
-    save({ lineHighlight, tool }),
+  watch(
+    [() => state.value.displayMode, view.lineHighlight, () => state.value.tool],
+    ([displayMode, lineHighlight, tool]) => save({ displayMode, lineHighlight, tool }),
   )
 }

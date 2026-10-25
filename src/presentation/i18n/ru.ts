@@ -112,6 +112,13 @@ export const ru = {
       command: 'Команда',
     },
   },
+  displayMode: {
+    title: 'Режим отображения',
+    color: 'Цвет',
+    pattern: 'Узор',
+    'color-pattern': 'Цвет+узор',
+    next: 'Следующий режим отображения',
+  },
   panel: {
     palette: 'Палитра',
   },

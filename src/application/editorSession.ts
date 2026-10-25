@@ -27,6 +27,15 @@ export const TOOLS = ['brush', 'eraser', 'fill', 'eyedropper', 'line', 'rectangl
 
 export type Tool = (typeof TOOLS)[number]
 
+/** «цвет», «узор», «цвет+узор», in the order `Tab` goes through them. */
+export const DISPLAY_MODES = ['color', 'pattern', 'color-pattern'] as const
+
+export type DisplayMode = (typeof DISPLAY_MODES)[number]
+
+export function nextDisplayMode(mode: DisplayMode): DisplayMode {
+  return DISPLAY_MODES[(DISPLAY_MODES.indexOf(mode) + 1) % DISPLAY_MODES.length] ?? 'color'
+}
+
 /** What a line or rectangle gesture paints on release; the overlay shows it during the gesture. */
 export interface GesturePreview {
   readonly yarn: YarnId
@@ -52,6 +61,8 @@ export interface EditorState {
   readonly tool: Tool
   /** The tool a gesture starts with now: the eyedropper while it is held (`Alt`), otherwise `tool`. */
   readonly activeTool: Tool
+  /** How the canvas shows the cells; a view preference, not an edit. */
+  readonly displayMode: DisplayMode
   /** A gesture started on the grid and has not ended yet. */
   readonly gestureActive: boolean
   /** The preview of the line or rectangle gesture under way, otherwise `null`. */
@@ -69,7 +80,8 @@ export interface EditorState {
  * `patch` — a patch was applied to the chart (a gesture's cells, its rollback, a palette edit, undo, redo);
  * `preview` — the gesture preview changed, the chart did not;
  * `replaced` — the whole chart was replaced (new chart, opened file);
- * `state` — something else in the state changed (tool, yarn selection, gesture, history), the chart did not;
+ * `state` — something else in the state changed (tool, display mode, yarn selection, gesture, history),
+ * the chart did not;
  * `rejected` — an edit was refused, nothing changed.
  */
 export type EditorEvent =
@@ -95,6 +107,7 @@ export type EditorEvent =
 export type EditorCommand =
   | { readonly type: 'replace-chart'; readonly chart: Chart; readonly unsavedToFile?: boolean }
   | { readonly type: 'select-tool'; readonly tool: Tool }
+  | { readonly type: 'select-display-mode'; readonly mode: DisplayMode }
   | { readonly type: 'hold-eyedropper'; readonly held: boolean }
   | {
       readonly type: 'pointer-down'
@@ -164,7 +177,7 @@ interface Pick {
   readonly start: { readonly current: YarnId; readonly previous: YarnId }
 }
 
-// Only these reach a gesture; tool, yarn, palette and history commands are ignored during it.
+// Only these reach a gesture; tool, display mode, yarn, palette and history commands are ignored during it.
 const DURING_GESTURE = new Set<EditorCommand['type']>([
   'replace-chart',
   'hold-eyedropper',
@@ -185,7 +198,11 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
   /** The last edit, while later `update-yarn` commands with its key may still join it. */
   let mergeable: { readonly key: string; readonly before: Palette } | null = null
   let stitchCounts: StitchCounts = new Map()
-  let state = withChart(createChart(START_CHART_SIZE, START_CHART_SIZE, clock.now()), 'brush')
+  let state = withChart(
+    createChart(START_CHART_SIZE, START_CHART_SIZE, clock.now()),
+    'brush',
+    'color',
+  )
   const listeners = new Set<EditorListener>()
 
   function emit(event: EditorEvent) {
@@ -205,7 +222,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     }
   }
 
-  function withChart(chart: Chart, tool: Tool): EditorState {
+  function withChart(chart: Chart, tool: Tool, displayMode: DisplayMode): EditorState {
     const { current, previous } = initialYarnSelection(chart.palette)
     stitchCounts = countStitches(chart.cells)
     return {
@@ -214,6 +231,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
       previousYarn: previous,
       tool,
       activeTool: eyedropperHeld ? 'eyedropper' : tool,
+      displayMode,
       gestureActive: false,
       preview: null,
       canUndo: false,
@@ -418,13 +436,18 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
         history = createHistory()
         // A point that is never the history top.
         savedTop = command.unsavedToFile ? {} : history.top
-        state = withChart(command.chart, state.tool)
+        state = withChart(command.chart, state.tool, state.displayMode)
         emit({ type: 'replaced' })
         break
       case 'select-tool':
         if (command.tool === state.tool) break
         if (command.tool === 'eyedropper') toolBeforeEyedropper = state.tool
         update({ tool: command.tool })
+        emit({ type: 'state' })
+        break
+      case 'select-display-mode':
+        if (command.mode === state.displayMode) break
+        update({ displayMode: command.mode })
         emit({ type: 'state' })
         break
       case 'hold-eyedropper':

@@ -11,6 +11,7 @@ import { useChartView } from './canvas/useChartView'
 import { provideCommands } from './commands/useCommands'
 import { useEditor } from './editor/useEditor'
 import { useViewPreferences } from './editor/useViewPreferences'
+import DisplayModeSwitch from './menu/DisplayModeSwitch.vue'
 import EditMenu from './menu/EditMenu.vue'
 import FileMenu from './menu/FileMenu.vue'
 import HelpMenu from './menu/HelpMenu.vue'
@@ -52,7 +53,9 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
           {{ state.chart.properties.title.trim() || t('chart.untitled') }}
           <span v-if="state.unsavedToFile" :title="t('chart.unsavedToFile')">•</span>
         </h1>
-        <div />
+        <div class="flex justify-end">
+          <DisplayModeSwitch />
+        </div>
       </header>
 
       <div class="flex min-h-0 flex-1">

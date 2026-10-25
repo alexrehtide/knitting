@@ -5,6 +5,8 @@ import { lineCells } from '../domain/line'
 import type { GridCell } from '../domain/numbering'
 import {
   createEditorSession,
+  DISPLAY_MODES,
+  nextDisplayMode,
   type EditorEvent,
   type EditorSession,
   type PointerButton,
@@ -778,6 +780,51 @@ describe('tool', () => {
 
     expect(session.state.tool).toBe('eraser')
     expect(events).toEqual([{ type: 'state' }])
+  })
+})
+
+describe('display mode', () => {
+  it('starts in «цвет» and goes «цвет» → «узор» → «цвет+узор» → «цвет»', () => {
+    expect(DISPLAY_MODES).toEqual(['color', 'pattern', 'color-pattern'])
+    expect(createEditorSession({ clock }).state.displayMode).toBe('color')
+    expect(DISPLAY_MODES.map(nextDisplayMode)).toEqual(['pattern', 'color-pattern', 'color'])
+  })
+
+  it('changes without an edit and tells subscribers', () => {
+    const session = smallSession()
+    session.dispatch({ type: 'mark-saved' })
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({ type: 'select-display-mode', mode: 'pattern' })
+
+    expect(session.state.displayMode).toBe('pattern')
+    expect(session.state.canUndo).toBe(false)
+    expect(session.state.unsavedToFile).toBe(false)
+    expect(events).toEqual([{ type: 'state' }])
+  })
+
+  it('is kept when the chart is replaced', () => {
+    const session = smallSession()
+    session.dispatch({ type: 'select-display-mode', mode: 'color-pattern' })
+
+    session.dispatch({ type: 'replace-chart', chart: createChart(5, 5, now) })
+
+    expect(session.state.displayMode).toBe('color-pattern')
+  })
+
+  it('is ignored during a gesture', () => {
+    const session = smallSession()
+    session.dispatch({
+      type: 'pointer-down',
+      cell: { row: 0, column: 0 },
+      button: 'primary',
+      shift: false,
+    })
+
+    session.dispatch({ type: 'select-display-mode', mode: 'pattern' })
+
+    expect(session.state.displayMode).toBe('color')
   })
 })
 
