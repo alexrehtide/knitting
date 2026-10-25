@@ -12,6 +12,7 @@ const EMPTY_HATCH_COLOR = '#a1a1aa'
 const MINOR_LINE_COLOR = 'rgba(113, 113, 122, 0.45)'
 const MAJOR_LINE_COLOR = 'rgba(39, 39, 42, 0.8)'
 const HIGHLIGHT_COLOR = 'rgba(79, 70, 229, 0.18)'
+const OUTLINE_COLOR = 'rgb(79, 70, 229)'
 
 // Thresholds by cell size in CSS px (#5): below 2 — colour only; from 2 — major lines; from 4 — every line.
 const MAJOR_LINES_FROM = 2
@@ -126,16 +127,25 @@ export function createCanvasRenderer(
   function drawOverlay(chart: Chart, cell: GridCell | null) {
     overlay.setTransform(1, 0, 0, 1, 0, 0)
     overlay.clearRect(0, 0, overlay.canvas.width, overlay.canvas.height)
-    if (!cell || !hover.lines) return
+    if (!cell) return
     const size = Math.round(viewport.cellSize * dpr)
     const x0 = Math.round(viewport.originX * dpr)
     const y0 = Math.round(viewport.originY * dpr)
-    overlay.fillStyle = HIGHLIGHT_COLOR
-    // One path filled by the nonzero rule, so the crossing cell is not tinted twice.
-    overlay.beginPath()
-    overlay.rect(x0, y0 + cell.row * size, chart.width * size, size)
-    overlay.rect(x0 + cell.column * size, y0, size, chart.height * size)
-    overlay.fill()
+    const left = x0 + cell.column * size
+    const top = y0 + cell.row * size
+    if (hover.lines) {
+      overlay.fillStyle = HIGHLIGHT_COLOR
+      // One path filled by the nonzero rule, so the crossing cell is not tinted twice.
+      overlay.beginPath()
+      overlay.rect(x0, top, chart.width * size, size)
+      overlay.rect(left, y0, size, chart.height * size)
+      overlay.fill()
+    }
+    // A thin outline inside the cell, so it does not hide the neighbours.
+    const line = Math.max(1, Math.round(dpr))
+    overlay.strokeStyle = OUTLINE_COLOR
+    overlay.lineWidth = line
+    overlay.strokeRect(left + line / 2, top + line / 2, size - line, size - line)
   }
 
   function hatchPattern(cell: number, x0: number, y0: number): CanvasPattern | string {

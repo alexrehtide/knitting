@@ -23,10 +23,17 @@ export function cellAt(
   x: number,
   y: number,
 ): GridCell | null {
-  const column = Math.floor((x - viewport.originX) / viewport.cellSize)
-  const row = Math.floor((y - viewport.originY) / viewport.cellSize)
+  const { row, column } = unboundedCellAt(viewport, x, y)
   if (column < 0 || column >= chart.width || row < 0 || row >= chart.height) return null
   return { row, column }
+}
+
+/** The cell a canvas point falls in, extending the grid beyond its edges; a gesture is clipped later. */
+export function unboundedCellAt(viewport: Viewport, x: number, y: number): GridCell {
+  return {
+    row: Math.floor((y - viewport.originY) / viewport.cellSize),
+    column: Math.floor((x - viewport.originX) / viewport.cellSize),
+  }
 }
 
 /** The largest whole-device-px cell at which the whole chart fits, centred. */

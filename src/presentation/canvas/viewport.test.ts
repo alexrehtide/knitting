@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { cellAt, fitViewport, scrollBy, zoomAt } from './viewport'
+import { cellAt, fitViewport, scrollBy, unboundedCellAt, zoomAt } from './viewport'
 
 const chart = { width: 40, height: 30 }
 const view = { width: 800, height: 600, dpr: 1 }
@@ -18,6 +18,11 @@ describe('cellAt', () => {
     expect(cellAt(viewport, chart, 150, 49.9)).toBeNull()
     expect(cellAt(viewport, chart, 500, 60)).toBeNull()
     expect(cellAt(viewport, chart, 150, 350)).toBeNull()
+  })
+
+  it('finds the cell off the grid too, for a gesture that leaves it', () => {
+    expect(unboundedCellAt(viewport, 99.9, 30)).toEqual({ row: -2, column: -1 })
+    expect(unboundedCellAt(viewport, 525, 60)).toEqual({ row: 1, column: 42 })
   })
 
   it('follows zoom and scroll', () => {

@@ -2,7 +2,7 @@ import { computed, ref, shallowRef, watch, type ShallowRef } from 'vue'
 import type { EditorState } from '../../application/editorSession'
 import type { Viewport, ViewSize } from '../../application/chartRenderer'
 import { numberOfCell } from '../../domain/numbering'
-import { cellAt, fitViewport, scrollBy, zoomAt, zoomPercent } from './viewport'
+import { cellAt, fitViewport, scrollBy, unboundedCellAt, zoomAt, zoomPercent } from './viewport'
 
 /**
  * Zoom, scroll and the pointer over the canvas. They are view state, not edits, so they live here
@@ -75,6 +75,8 @@ export function useChartView(state: ShallowRef<EditorState>) {
     zoomOut: () => zoom(-1),
     zoom,
     scroll,
+    /** The cell under a canvas point in CSS px, on the grid or off it, for the gesture. */
+    gestureCellAt: (x: number, y: number) => unboundedCellAt(viewport.value, x, y),
   }
 }
 

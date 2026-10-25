@@ -14,7 +14,7 @@ export interface ViewSize {
   readonly dpr: number
 }
 
-/** The cell under the pointer, marked on the rulers and, with `lines`, as its row and column on the grid. */
+/** The cell under the pointer, outlined and marked on the rulers and, with `lines`, as its row and column on the grid. */
 export interface Hover {
   readonly cell: GridCell | null
   readonly lines: boolean

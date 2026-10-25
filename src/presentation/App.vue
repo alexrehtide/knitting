@@ -7,8 +7,10 @@ import ChartCanvas from './canvas/ChartCanvas.vue'
 import { useChartView } from './canvas/useChartView'
 import { provideCommands } from './commands/useCommands'
 import { useEditor } from './editor/useEditor'
+import EditMenu from './menu/EditMenu.vue'
 import HelpMenu from './menu/HelpMenu.vue'
 import ViewMenu from './menu/ViewMenu.vue'
+import ToolButtons from './tools/ToolButtons.vue'
 
 const { t } = useI18n()
 const { state } = useEditor()
@@ -26,6 +28,7 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
         class="grid h-10 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-default px-2"
       >
         <nav class="flex items-center gap-1">
+          <EditMenu />
           <ViewMenu :view="view" />
           <HelpMenu />
         </nav>
@@ -37,7 +40,9 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
         <aside
           :aria-label="t('layout.tools')"
           class="flex w-12 shrink-0 flex-col items-center gap-2 border-r border-default py-2"
-        />
+        >
+          <ToolButtons />
+        </aside>
 
         <main class="relative min-w-0 flex-1 overflow-hidden bg-muted">
           <ChartCanvas :view="view" />
@@ -70,6 +75,7 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
           t('status.size', { width: state.chart.width, height: state.chart.height })
         }}</span>
         <span>{{ t('status.zoom', { percent: view.zoomPercent.value }) }}</span>
+        <span>{{ t('status.tool', { tool: t(`tool.${state.tool}`) }) }}</span>
       </footer>
     </div>
   </UApp>

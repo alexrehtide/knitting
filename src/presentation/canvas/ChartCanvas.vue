@@ -2,12 +2,15 @@
 import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ChartRenderer } from '../../application/chartRenderer'
+import type { EditorCommand } from '../../application/editorSession'
 import { chartRendererKey, injectStrict } from '../editor/injection'
+import { useEditor } from '../editor/useEditor'
 import type { ChartView } from './useChartView'
 
 const { view } = defineProps<{ view: ChartView }>()
 
 const { t } = useI18n()
+const { state, dispatch } = useEditor()
 const createRenderer = injectStrict(chartRendererKey)
 const canvas = useTemplateRef('canvas')
 const overlay = useTemplateRef('overlay')
@@ -20,7 +23,17 @@ let stopDprWatch = () => {}
 
 const spaceHeld = ref(false)
 const pan = ref<{ pointerId: number; x: number; y: number } | null>(null)
-const cursor = computed(() => (pan.value ? 'grabbing' : spaceHeld.value ? 'grab' : 'default'))
+/** A tool gesture: its pointer and button, the last pointer point in CSS px of the canvas and Shift. */
+let gesture: { pointerId: number; button: number; x: number; y: number; shift: boolean } | null =
+  null
+const cursor = computed(() => {
+  if (pan.value) return 'grabbing'
+  if (spaceHeld.value) return 'grab'
+  return state.value.gestureActive || view.hoverCell.value ? 'crosshair' : 'default'
+})
+
+// `MouseEvent.button` → its bit in `MouseEvent.buttons`.
+const BUTTON_BITS = [1, 4, 2, 8, 16]
 
 // A mouse wheel notch gives ~100 px; a trackpad pinch gives many small deltas, so they add up to a step.
 const ZOOM_STEP_DELTA = 50
@@ -62,30 +75,99 @@ function onWheel(event: WheelEvent) {
   view.scroll(event.deltaX * scale, event.deltaY * scale)
 }
 
+function canvasPoint(event: MouseEvent) {
+  const rect = canvas.value?.getBoundingClientRect()
+  return { x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) }
+}
+
 function onPointerDown(event: PointerEvent) {
+  if (gesture) {
+    // Another pointer pressed during the gesture counts as a second button.
+    pressSecondButton(event)
+    return
+  }
   const panButton = event.button === 1 || (event.button === 0 && spaceHeld.value)
-  if (!panButton || pan.value) return
-  // Stops the browser's middle-button autoscroll.
-  event.preventDefault()
+  if (panButton) {
+    if (pan.value) return
+    // Stops the browser's middle-button autoscroll.
+    event.preventDefault()
+    canvas.value?.setPointerCapture(event.pointerId)
+    pan.value = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+    return
+  }
+  if ((event.button !== 0 && event.button !== 2) || pan.value) return
+  const { x, y } = canvasPoint(event)
+  dispatch({
+    type: 'pointer-down',
+    cell: view.gestureCellAt(x, y),
+    button: event.button === 0 ? 'primary' : 'secondary',
+    shift: event.shiftKey,
+  })
+  // A gesture started off the grid does nothing.
+  if (!state.value.gestureActive) return
   canvas.value?.setPointerCapture(event.pointerId)
-  pan.value = { pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+  gesture = { pointerId: event.pointerId, button: event.button, x, y, shift: event.shiftKey }
+}
+
+/** The session cancels the gesture on a second press. */
+function pressSecondButton(event: PointerEvent) {
+  const { x, y } = canvasPoint(event)
+  endGesture({
+    type: 'pointer-down',
+    cell: view.gestureCellAt(x, y),
+    button: 'secondary',
+    shift: event.shiftKey,
+  })
+}
+
+/** Sends the session the command that ends the gesture, and lets the pointer go. */
+function endGesture(command: EditorCommand) {
+  if (!gesture) return
+  dispatch(command)
+  if (canvas.value?.hasPointerCapture(gesture.pointerId))
+    canvas.value.releasePointerCapture(gesture.pointerId)
+  gesture = null
 }
 
 function onPointerMove(event: PointerEvent) {
-  const rect = canvas.value?.getBoundingClientRect()
-  view.setPointer({ x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) })
+  view.setPointer(canvasPoint(event))
+  if (gesture?.pointerId === event.pointerId) {
+    // A pointer with a button already down reports another button's press as a move.
+    const pressed = event.button >= 0 && event.buttons & (BUTTON_BITS[event.button] ?? 0)
+    if (pressed && event.button !== gesture.button) {
+      pressSecondButton(event)
+      return
+    }
+    // Every real pointer position, not only the last one of the frame.
+    const points = event.getCoalescedEvents?.() ?? []
+    for (const point of points.length > 0 ? points : [event])
+      moveGesture({ ...canvasPoint(point), shift: event.shiftKey })
+    return
+  }
   if (pan.value?.pointerId !== event.pointerId) return
   view.scroll(pan.value.x - event.clientX, pan.value.y - event.clientY)
   pan.value = { ...pan.value, x: event.clientX, y: event.clientY }
 }
 
+function moveGesture(point: { x: number; y: number; shift: boolean }) {
+  if (!gesture) return
+  Object.assign(gesture, point)
+  dispatch({ type: 'pointer-move', cell: view.gestureCellAt(point.x, point.y), shift: point.shift })
+}
+
 function onPointerUp(event: PointerEvent) {
+  if (gesture?.pointerId === event.pointerId) endGesture({ type: 'pointer-up' })
   if (pan.value?.pointerId === event.pointerId) pan.value = null
 }
 
 function onKeyDown(event: KeyboardEvent) {
+  if (event.code === 'Escape' && gesture) {
+    event.preventDefault()
+    endGesture({ type: 'cancel-gesture' })
+    return
+  }
   // Space belongs to a focused control (button, tab, field); it pans only when nothing is focused.
-  if (event.code !== 'Space' || event.target !== document.body) return
+  if (event.code !== 'Space' || event.target !== document.body || gesture) return
   event.preventDefault()
   spaceHeld.value = true
 }
@@ -96,6 +178,8 @@ function onKeyUp(event: KeyboardEvent) {
 
 function onBlur() {
   spaceHeld.value = false
+  // Losing focus keeps the gesture, as releasing the button does.
+  endGesture({ type: 'pointer-up' })
 }
 
 onMounted(() => {
@@ -116,7 +200,15 @@ onMounted(() => {
   window.addEventListener('blur', onBlur)
 })
 
-watch(view.viewport, (viewport) => renderer?.setViewport(viewport), { immediate: true })
+watch(
+  view.viewport,
+  (viewport) => {
+    renderer?.setViewport(viewport)
+    // The wheel zooms or scrolls under a still pointer: the gesture follows to the cell now under it.
+    if (gesture) moveGesture(gesture)
+  },
+  { immediate: true },
+)
 watch([view.hoverCell, view.lineHighlight], ([cell, lines]) => renderer?.setHover({ cell, lines }))
 
 onBeforeUnmount(() => {
@@ -149,6 +241,7 @@ onBeforeUnmount(() => {
         @pointercancel="onPointerUp"
         @pointerleave="view.setPointer(null)"
         @auxclick.prevent
+        @contextmenu.prevent
       />
       <canvas
         ref="overlay"

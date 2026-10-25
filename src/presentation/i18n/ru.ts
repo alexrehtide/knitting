@@ -9,7 +9,16 @@ export const ru = {
     sidePanel: 'Панель',
     statusBar: 'Статус',
   },
+  tool: {
+    brush: 'Кисть',
+    eraser: 'Ластик',
+  },
   menu: {
+    edit: {
+      title: 'Правка',
+      undo: 'Отменить',
+      redo: 'Повторить',
+    },
     view: {
       title: 'Вид',
       fit: 'Вписать',
@@ -37,6 +46,7 @@ export const ru = {
     cell: 'ряд {row}, петля {stitch}',
     size: 'Размер: {width} × {height}',
     zoom: 'Масштаб: {percent}%',
+    tool: 'Инструмент: {tool}',
   },
 }
 
