@@ -56,16 +56,16 @@ export function yarnRemovalBlock(
   return null
 }
 
+/** What a yarn edit changes; a field left out stays as it is. */
+export interface YarnChanges {
+  readonly color?: string
+  /** `null` — «без узора». */
+  readonly pattern?: FillPattern | null
+  readonly name?: string
+}
+
 /** The palette with the yarn's colour, pattern or name changed, the yarn in the same place. */
-export function updateYarn(
-  palette: Palette,
-  id: YarnId,
-  changes: {
-    readonly color?: string
-    readonly pattern?: FillPattern | null
-    readonly name?: string
-  },
-): Palette {
+export function updateYarn(palette: Palette, id: YarnId, changes: YarnChanges): Palette {
   return palette.map((y) => (y.id === id ? { ...y, ...changes } : y))
 }
 
@@ -80,7 +80,7 @@ export function patternUses(palette: Palette): ReadonlyMap<FillPattern, number> 
 /** How many yarns share their pattern with another yarn, for the warning «у N нитей совпадают узоры». */
 export function patternClashCount(palette: Palette): number {
   let count = 0
-  for (const uses of patternUses(palette).values()) if (uses > 1) count += uses
+  for (const yarns of patternUses(palette).values()) if (yarns > 1) count += yarns
   return count
 }
 

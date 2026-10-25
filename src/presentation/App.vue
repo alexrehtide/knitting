@@ -31,7 +31,11 @@ provideCommands()
 const currentYarn = computed(() => {
   const { palette } = state.value.chart
   const index = palette.findIndex((y) => y.id === state.value.currentYarn)
-  return { number: index + 1, color: palette[index]?.color ?? 'transparent' }
+  return {
+    number: index + 1,
+    color: palette[index]?.color ?? 'transparent',
+    pattern: palette[index]?.pattern ?? null,
+  }
 })
 
 // The badge counts the yarns with a shared pattern, as the alert over the palette list.
@@ -128,7 +132,7 @@ const panelTabs = computed(() => {
         }}</span>
         <span class="flex items-center gap-1.5">
           {{ t('status.yarn', { number: currentYarn.number }) }}
-          <YarnSwatch :color="currentYarn.color" class="size-3" />
+          <YarnSwatch :color="currentYarn.color" :pattern="currentYarn.pattern" class="size-3" />
         </span>
         <AutosaveStatus />
         <span v-if="state.unsavedToFile">{{ t('status.unsavedToFile') }}</span>

@@ -1,7 +1,6 @@
 import { createChart, initialYarnSelection, repairYarnSelection, type Chart } from '../domain/chart'
 import type { Clock } from '../domain/clock'
 import { fillCells } from '../domain/fill'
-import type { FillPattern } from '../domain/fillPattern'
 import { lineCells, snapLineEnd } from '../domain/line'
 import type { GridCell } from '../domain/numbering'
 import {
@@ -11,6 +10,7 @@ import {
   updateYarn,
   yarnRemovalBlock,
   type Palette,
+  type YarnChanges,
   type YarnId,
 } from '../domain/palette'
 import { applyPatch, invertPatch, type CellChange, type ChartPatch } from '../domain/patch'
@@ -125,12 +125,7 @@ export type EditorCommand =
   | {
       readonly type: 'update-yarn'
       readonly yarn: YarnId
-      readonly changes: {
-        readonly color?: string
-        /** `null` — «без узора». */
-        readonly pattern?: FillPattern | null
-        readonly name?: string
-      }
+      readonly changes: YarnChanges
       readonly merge?: string
     }
   | { readonly type: 'remove-yarn'; readonly yarn: YarnId }

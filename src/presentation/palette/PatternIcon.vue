@@ -48,7 +48,11 @@ const points = (list: readonly PatternPoint[]) => list.map(([x, y]) => `${x},${y
         fill="currentColor"
         stroke="none"
       />
-      <polygon v-else-if="p.closed" :points="points(p.points)" :stroke-width="p.width" />
+      <polygon
+        v-else-if="p.kind === 'polyline' && p.closed"
+        :points="points(p.points)"
+        :stroke-width="p.width"
+      />
       <polyline v-else :points="points(p.points)" :stroke-width="p.width" />
     </template>
   </svg>

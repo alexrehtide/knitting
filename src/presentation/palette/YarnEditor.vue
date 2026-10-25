@@ -36,7 +36,12 @@ const uses = computed(() => patternUses(state.value.chart.palette))
 /** How many other yarns have the pattern. */
 const otherUses = (pattern: FillPattern) =>
   (uses.value.get(pattern) ?? 0) - (yarn.pattern === pattern ? 1 : 0)
-const clash = computed(() => (yarn.pattern ? otherUses(yarn.pattern) : 0))
+/** The pattern name, with «уже у N нит.» when other yarns have it: the dot's meaning in words. */
+const patternHint = (pattern: FillPattern) =>
+  otherUses(pattern) > 0
+    ? t('yarnEditor.usedBy', { pattern: t(`pattern.${pattern}`), n: otherUses(pattern) })
+    : t(`pattern.${pattern}`)
+const clash = computed(() => (yarn.pattern !== null ? otherUses(yarn.pattern) : 0))
 
 watch(open, (isOpen) => {
   if (!isOpen) return
@@ -128,18 +133,7 @@ function remove() {
                 <UIcon name="i-lucide-ban" class="size-4" />
               </button>
             </UTooltip>
-            <UTooltip
-              v-for="pattern in FILL_PATTERNS"
-              :key="pattern"
-              :text="
-                otherUses(pattern) > 0
-                  ? t('yarnEditor.usedBy', {
-                      pattern: t(`pattern.${pattern}`),
-                      n: otherUses(pattern),
-                    })
-                  : t(`pattern.${pattern}`)
-              "
-            >
+            <UTooltip v-for="pattern in FILL_PATTERNS" :key="pattern" :text="patternHint(pattern)">
               <button
                 type="button"
                 class="relative flex h-7 items-center justify-center rounded-sm border text-highlighted focus-visible:outline-2 focus-visible:outline-primary"
@@ -147,6 +141,7 @@ function remove() {
                   yarn.pattern === pattern ? 'border-primary bg-primary/10' : 'border-default'
                 "
                 :aria-label="t(`pattern.${pattern}`)"
+                :aria-description="otherUses(pattern) > 0 ? patternHint(pattern) : undefined"
                 :aria-pressed="yarn.pattern === pattern"
                 @click="setPattern(pattern)"
               >
