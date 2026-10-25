@@ -4,7 +4,7 @@ import vue from '@vitejs/plugin-vue'
 import ui from '@nuxt/ui/vite'
 
 // GitHub Pages serves the site from /knitting/; dev runs at the root.
-const PAGES_BASE = '/knitting/'
+export const PAGES_BASE = '/knitting/'
 
 export default defineConfig(({ command, isPreview }) => ({
   base: command === 'build' || isPreview ? PAGES_BASE : '/',

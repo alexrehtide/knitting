@@ -1,7 +1,9 @@
 import { defineConfig, devices } from '@playwright/test'
+import { PAGES_BASE } from './vite.config'
 
 const isCI = !!process.env.CI
 const PORT = 4173
+const APP_URL = `http://localhost:${PORT}${PAGES_BASE}`
 
 export default defineConfig({
   testDir: 'e2e',
@@ -9,7 +11,7 @@ export default defineConfig({
   retries: isCI ? 1 : 0,
   reporter: isCI ? [['html', { open: 'never' }], ['github']] : [['list']],
   use: {
-    baseURL: `http://localhost:${PORT}/knitting/`,
+    baseURL: APP_URL,
     trace: 'on-first-retry',
   },
   projects: [
@@ -25,7 +27,7 @@ export default defineConfig({
   // e2e runs against the production build, with the same base path as GitHub Pages.
   webServer: {
     command: `pnpm exec vite preview --port ${PORT} --strictPort`,
-    url: `http://localhost:${PORT}/knitting/`,
+    url: APP_URL,
     reuseExistingServer: !isCI,
   },
 })

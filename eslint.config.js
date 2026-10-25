@@ -16,7 +16,11 @@ const layerPolicies = [
     from: { element: { type: 'presentation' } },
     allow: { to: { element: { types: { anyOf: ['application', 'domain'] } } } },
   },
-  { from: { element: { type: 'main' } }, allow: { to: { element: { type: '*' } } } },
+  // Only the composition root may wire adapters; other files in src/ import nothing.
+  {
+    from: { element: { type: 'root' }, file: { categories: 'composition-root' } },
+    allow: { to: { element: { type: '*' } } },
+  },
 ]
 
 const coreRestrictedImports = {
@@ -71,9 +75,11 @@ export default tseslint.config(
         { type: 'application', pattern: 'src/application' },
         { type: 'infrastructure', pattern: 'src/infrastructure' },
         { type: 'presentation', pattern: 'src/presentation' },
-        // Everything else under src/ is the composition root (src/main.ts).
-        { type: 'main', pattern: 'src' },
+        // Element patterns match folders: the rest of src/ is one element,
+        // and only src/main.ts in it is the composition root.
+        { type: 'root', pattern: 'src' },
       ],
+      'boundaries/files': [{ category: 'composition-root', pattern: 'src/main.ts' }],
     },
     rules: {
       'boundaries/no-unknown-files': 'error',
