@@ -1,7 +1,8 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UButton from '@nuxt/ui/components/Button.vue'
-import UDropdownMenu from '@nuxt/ui/components/DropdownMenu.vue'
+import UDropdownMenu, { type DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue'
 import type { ChartView } from '../canvas/useChartView'
 import { useCommandMenuItems, useCommands } from '../commands/useCommands'
 
@@ -41,7 +42,20 @@ useCommands([
   },
 ])
 
-const items = useCommandMenuItems(['view.fit', 'view.zoomIn', 'view.zoomOut'])
+const commandItems = useCommandMenuItems(['view.fit', 'view.zoomIn', 'view.zoomOut'])
+const items = computed<DropdownMenuItem[][]>(() => [
+  commandItems.value,
+  [
+    {
+      label: t('menu.view.lineHighlight'),
+      type: 'checkbox',
+      checked: view.lineHighlight.value,
+      onUpdateChecked: view.setLineHighlight,
+      // Keeps the menu open, as for other checkboxes.
+      onSelect: (event: Event) => event.preventDefault(),
+    },
+  ],
+])
 </script>
 
 <template>

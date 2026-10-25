@@ -15,6 +15,7 @@ export const ru = {
       fit: 'Вписать',
       zoomIn: 'Приблизить',
       zoomOut: 'Отдалить',
+      lineHighlight: 'Подсветка ряда и столбца',
     },
     help: {
       title: 'Справка',
@@ -33,6 +34,7 @@ export const ru = {
     palette: 'Палитра',
   },
   status: {
+    cell: 'ряд {row}, петля {stitch}',
     size: 'Размер: {width} × {height}',
     zoom: 'Масштаб: {percent}%',
   },

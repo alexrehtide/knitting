@@ -1,14 +1,17 @@
-import type { ChartRenderer, Viewport } from '../application/chartRenderer'
+import type { ChartRenderer, Hover, Viewport } from '../application/chartRenderer'
 import type { EditorEvent, EditorSession } from '../application/editorSession'
 import type { Chart } from '../domain/chart'
 import { isMajorGridLine } from '../domain/gridLines'
+import type { GridCell } from '../domain/numbering'
 import type { YarnId } from '../domain/palette'
+import { drawRuler } from './rulers'
 
 const OUTSIDE_COLOR = '#e4e4e7'
 const EMPTY_COLOR = '#f1f1f3'
 const EMPTY_HATCH_COLOR = '#a1a1aa'
 const MINOR_LINE_COLOR = 'rgba(113, 113, 122, 0.45)'
 const MAJOR_LINE_COLOR = 'rgba(39, 39, 42, 0.8)'
+const HIGHLIGHT_COLOR = 'rgba(79, 70, 229, 0.18)'
 
 // Thresholds by cell size in CSS px (#5): below 2 — colour only; from 2 — major lines; from 4 — every line.
 const MAJOR_LINES_FROM = 2
@@ -18,38 +21,66 @@ const ALL_LINES_FROM = 4
 const HATCH_FROM_DEVICE_PX = 4
 
 /**
+ * The chart's layers: the bitmap, a transparent overlay above it, and the rulers along its top and left.
+ * Mirrors the type in presentation/editor/injection.ts: the core has no DOM types to share it through.
+ */
+export interface ChartCanvases {
+  readonly chart: HTMLCanvasElement
+  readonly overlay: HTMLCanvasElement
+  readonly rulerX: HTMLCanvasElement
+  readonly rulerY: HTMLCanvasElement
+}
+
+/**
  * Draws the chart in «colour» mode: a W×H bitmap, one pixel per cell, scaled with `drawImage`
  * without smoothing; empty cells are transparent in it and show the «нет петли» hatch beneath.
  * `patch` repaints the changed cells of the bitmap, `replaced` rebuilds it.
+ * The overlay and the rulers follow the viewport and the hovered cell; a hover redraws them alone.
  */
 export function createCanvasRenderer(
-  canvas: HTMLCanvasElement,
+  canvases: ChartCanvases,
   session: EditorSession,
 ): ChartRenderer {
-  const context = canvas.getContext('2d', { alpha: false })
-  if (!context) throw new Error('Canvas 2D is unavailable')
-  const ctx = context
+  const canvas = canvases.chart
+  const ctx = context2d(canvas, { alpha: false })
+  const overlay = context2d(canvases.overlay)
+  const rulerX = context2d(canvases.rulerX, { alpha: false })
+  const rulerY = context2d(canvases.rulerY, { alpha: false })
 
   let dpr = 1
   let viewport: Viewport = { cellSize: 1, originX: 0, originY: 0 }
+  let hover: Hover = { cell: null, lines: false }
   let frame = 0
+  const dirty = { chart: false, marks: false }
   let hatch: { size: number; pattern: CanvasPattern | string } | null = null
 
   let bitmap = createBitmap(session.state.chart)
 
   const unsubscribe = session.subscribe((event: EditorEvent) => {
-    if (event.type === 'replaced') bitmap = createBitmap(session.state.chart)
-    else if (event.type === 'patch') bitmap.paint(event.patch.cells)
-    else return
-    schedule()
+    if (event.type === 'replaced') {
+      bitmap = createBitmap(session.state.chart)
+      schedule({ chart: true, marks: true })
+    } else if (event.type === 'patch') {
+      bitmap.paint(event.patch.cells)
+      schedule({ chart: true })
+    }
   })
 
-  function schedule() {
+  function schedule(layers: Partial<typeof dirty>) {
+    dirty.chart ||= !!layers.chart
+    dirty.marks ||= !!layers.marks
     if (frame === 0) frame = requestAnimationFrame(draw)
   }
 
   function draw() {
     frame = 0
+    if (dirty.chart) drawChart()
+    if (dirty.marks) drawMarks()
+    dirty.chart = false
+    dirty.marks = false
+  }
+
+  function drawChart() {
     const { chart } = session.state
     const { width, height } = chart
     const cell = Math.round(viewport.cellSize * dpr)
@@ -78,6 +109,33 @@ export function createCanvasRenderer(
     ctx.drawImage(bitmap.canvas, c0, r0, c1 - c0, r1 - r0, left, top, w, h)
 
     drawGrid(chart, cell, x0, y0, { c0, c1, r0, r1 })
+  }
+
+  function drawMarks() {
+    const { chart } = session.state
+    // The hover may still be of the chart that was just replaced.
+    const cell =
+      hover.cell && hover.cell.row < chart.height && hover.cell.column < chart.width
+        ? hover.cell
+        : null
+    drawRuler(rulerX, 'x', chart, viewport, dpr, cell?.column ?? null)
+    drawRuler(rulerY, 'y', chart, viewport, dpr, cell?.row ?? null)
+    drawOverlay(chart, cell)
+  }
+
+  function drawOverlay(chart: Chart, cell: GridCell | null) {
+    overlay.setTransform(1, 0, 0, 1, 0, 0)
+    overlay.clearRect(0, 0, overlay.canvas.width, overlay.canvas.height)
+    if (!cell || !hover.lines) return
+    const size = Math.round(viewport.cellSize * dpr)
+    const x0 = Math.round(viewport.originX * dpr)
+    const y0 = Math.round(viewport.originY * dpr)
+    overlay.fillStyle = HIGHLIGHT_COLOR
+    // One path filled by the nonzero rule, so the crossing cell is not tinted twice.
+    overlay.beginPath()
+    overlay.rect(x0, y0 + cell.row * size, chart.width * size, size)
+    overlay.rect(x0 + cell.column * size, y0, size, chart.height * size)
+    overlay.fill()
   }
 
   function hatchPattern(cell: number, x0: number, y0: number): CanvasPattern | string {
@@ -145,15 +203,29 @@ export function createCanvasRenderer(
   return {
     setSize(size) {
       dpr = size.dpr
-      canvas.width = Math.max(1, Math.round(size.width * dpr))
-      canvas.height = Math.max(1, Math.round(size.height * dpr))
-      // Resizing clears the canvas, so draw now rather than on the next frame to avoid a blank flash.
+      const device = (css: number) => Math.max(1, Math.round(css * dpr))
+      for (const c of [canvas, overlay.canvas]) {
+        c.width = device(size.width)
+        c.height = device(size.height)
+      }
+      // The rulers run along the chart canvas; their thickness is the layout's.
+      rulerX.canvas.width = device(size.width)
+      rulerX.canvas.height = device(rulerX.canvas.getBoundingClientRect().height)
+      rulerY.canvas.width = device(rulerY.canvas.getBoundingClientRect().width)
+      rulerY.canvas.height = device(size.height)
+      // Resizing clears the canvases, so draw now rather than on the next frame to avoid a blank flash.
       cancelAnimationFrame(frame)
+      dirty.chart = true
+      dirty.marks = true
       draw()
     },
     setViewport(next) {
       viewport = next
-      schedule()
+      schedule({ chart: true, marks: true })
+    },
+    setHover(next) {
+      hover = next
+      schedule({ marks: true })
     },
     dispose() {
       cancelAnimationFrame(frame)
@@ -161,6 +233,12 @@ export function createCanvasRenderer(
       unsubscribe()
     },
   }
+}
+
+function context2d(canvas: HTMLCanvasElement, options?: CanvasRenderingContext2DSettings) {
+  const context = canvas.getContext('2d', options)
+  if (!context) throw new Error('Canvas 2D is unavailable')
+  return context
 }
 
 /** One pixel per cell; a yarn's colour or transparent for an empty cell. */

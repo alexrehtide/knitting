@@ -25,7 +25,7 @@ if (isValidChartDimension(devChartSize)) {
 
 createApp(App)
   .provide(editorSessionKey, session)
-  .provide(chartRendererKey, (canvas) => createCanvasRenderer(canvas, session))
+  .provide(chartRendererKey, (canvases) => createCanvasRenderer(canvases, session))
   .use(i18n)
   .use(ui)
   .mount('#app')

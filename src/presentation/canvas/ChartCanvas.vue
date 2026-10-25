@@ -10,6 +10,9 @@ const { view } = defineProps<{ view: ChartView }>()
 const { t } = useI18n()
 const createRenderer = injectStrict(chartRendererKey)
 const canvas = useTemplateRef('canvas')
+const overlay = useTemplateRef('overlay')
+const rulerX = useTemplateRef('rulerX')
+const rulerY = useTemplateRef('rulerY')
 
 let renderer: ChartRenderer | null = null
 let resizeObserver: ResizeObserver | null = null
@@ -69,6 +72,8 @@ function onPointerDown(event: PointerEvent) {
 }
 
 function onPointerMove(event: PointerEvent) {
+  const rect = canvas.value?.getBoundingClientRect()
+  view.setPointer({ x: event.clientX - (rect?.left ?? 0), y: event.clientY - (rect?.top ?? 0) })
   if (pan.value?.pointerId !== event.pointerId) return
   view.scroll(pan.value.x - event.clientX, pan.value.y - event.clientY)
   pan.value = { ...pan.value, x: event.clientX, y: event.clientY }
@@ -95,8 +100,13 @@ function onBlur() {
 
 onMounted(() => {
   const el = canvas.value
-  if (!el) return
-  renderer = createRenderer(el)
+  if (!el || !overlay.value || !rulerX.value || !rulerY.value) return
+  renderer = createRenderer({
+    chart: el,
+    overlay: overlay.value,
+    rulerX: rulerX.value,
+    rulerY: rulerY.value,
+  })
   resizeObserver = new ResizeObserver(measure)
   resizeObserver.observe(el)
   watchDpr()
@@ -107,6 +117,7 @@ onMounted(() => {
 })
 
 watch(view.viewport, (viewport) => renderer?.setViewport(viewport), { immediate: true })
+watch([view.hoverCell, view.lineHighlight], ([cell, lines]) => renderer?.setHover({ cell, lines }))
 
 onBeforeUnmount(() => {
   resizeObserver?.disconnect()
@@ -119,18 +130,32 @@ onBeforeUnmount(() => {
 </script>
 
 <template>
-  <canvas
-    ref="canvas"
-    role="img"
-    :aria-label="t('chart.canvasLabel')"
-    data-testid="chart-canvas"
-    class="absolute inset-0 size-full touch-none"
-    :style="{ cursor }"
-    @wheel="onWheel"
-    @pointerdown="onPointerDown"
-    @pointermove="onPointerMove"
-    @pointerup="onPointerUp"
-    @pointercancel="onPointerUp"
-    @auxclick.prevent
-  />
+  <div class="absolute inset-0 grid grid-cols-[2rem_1fr] grid-rows-[1.25rem_1fr]">
+    <div class="border-r border-b border-default bg-elevated" />
+    <canvas ref="rulerX" data-testid="ruler-x" aria-hidden="true" class="size-full" />
+    <canvas ref="rulerY" data-testid="ruler-y" aria-hidden="true" class="size-full" />
+    <div class="relative min-h-0 min-w-0">
+      <canvas
+        ref="canvas"
+        role="img"
+        :aria-label="t('chart.canvasLabel')"
+        data-testid="chart-canvas"
+        class="absolute inset-0 size-full touch-none"
+        :style="{ cursor }"
+        @wheel="onWheel"
+        @pointerdown="onPointerDown"
+        @pointermove="onPointerMove"
+        @pointerup="onPointerUp"
+        @pointercancel="onPointerUp"
+        @pointerleave="view.setPointer(null)"
+        @auxclick.prevent
+      />
+      <canvas
+        ref="overlay"
+        data-testid="chart-overlay"
+        aria-hidden="true"
+        class="pointer-events-none absolute inset-0 size-full"
+      />
+    </div>
+  </div>
 </template>

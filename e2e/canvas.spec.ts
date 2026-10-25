@@ -1,33 +1,8 @@
 import { expect, test, type Page } from '@playwright/test'
+import { chartBox } from './chart'
 
 const PALETTE = ['#ffffff', '#000000']
 const CHART_SIZE = 40
-
-/** Finds the chart on the canvas as the box of pixels that differ from the corner (outside the chart). */
-async function chartBox(page: Page) {
-  return page.getByTestId('chart-canvas').evaluate((el) => {
-    const canvas = el as HTMLCanvasElement
-    const { width, height } = canvas
-    const data = canvas.getContext('2d')!.getImageData(0, 0, width, height).data
-    const outside = [data[0], data[1], data[2]]
-    let left = width
-    let top = height
-    let right = -1
-    let bottom = -1
-    for (let y = 0; y < height; y++) {
-      for (let x = 0; x < width; x++) {
-        const i = (y * width + x) * 4
-        if (data[i] === outside[0] && data[i + 1] === outside[1] && data[i + 2] === outside[2])
-          continue
-        left = Math.min(left, x)
-        right = Math.max(right, x)
-        top = Math.min(top, y)
-        bottom = Math.max(bottom, y)
-      }
-    }
-    return { left, top, width: right - left + 1, height: bottom - top + 1 }
-  })
-}
 
 async function pixel(page: Page, x: number, y: number) {
   return page

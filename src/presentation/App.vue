@@ -57,6 +57,15 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
         :aria-label="t('layout.statusBar')"
         class="flex h-7 shrink-0 items-center gap-4 border-t border-default px-3 text-xs text-muted"
       >
+        <!-- Fixed width, so the rest of the bar does not jump as the pointer moves; empty off the grid. -->
+        <span class="w-36 tabular-nums">{{
+          view.hoverNumber.value
+            ? t('status.cell', {
+                row: view.hoverNumber.value.row,
+                stitch: view.hoverNumber.value.stitch,
+              })
+            : ''
+        }}</span>
         <span>{{
           t('status.size', { width: state.chart.width, height: state.chart.height })
         }}</span>

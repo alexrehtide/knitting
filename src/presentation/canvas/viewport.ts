@@ -1,5 +1,6 @@
 import type { Viewport, ViewSize } from '../../application/chartRenderer'
 import type { Chart } from '../../domain/chart'
+import type { GridCell } from '../../domain/numbering'
 
 type ChartSize = Pick<Chart, 'width' | 'height'>
 
@@ -13,6 +14,19 @@ const ZOOM_FACTOR = 1.25
 
 export function zoomPercent(viewport: Viewport): number {
   return Math.round((viewport.cellSize / FULL_SIZE_CELL) * 100)
+}
+
+/** The cell under a point of the canvas, in CSS px from its top left corner; `null` outside the grid. */
+export function cellAt(
+  viewport: Viewport,
+  chart: ChartSize,
+  x: number,
+  y: number,
+): GridCell | null {
+  const column = Math.floor((x - viewport.originX) / viewport.cellSize)
+  const row = Math.floor((y - viewport.originY) / viewport.cellSize)
+  if (column < 0 || column >= chart.width || row < 0 || row >= chart.height) return null
+  return { row, column }
 }
 
 /** The largest whole-device-px cell at which the whole chart fits, centred. */

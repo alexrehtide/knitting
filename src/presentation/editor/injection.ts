@@ -2,8 +2,16 @@ import { inject, type InjectionKey } from 'vue'
 import type { ChartRenderer } from '../../application/chartRenderer'
 import type { EditorSession } from '../../application/editorSession'
 
-/** Adapters come from `src/main.ts`; the renderer is made per canvas once it is mounted. */
-export type ChartRendererFactory = (canvas: HTMLCanvasElement) => ChartRenderer
+/** The chart's canvas layers: the chart, a transparent overlay above it, and the rulers along its top and left. */
+export interface ChartCanvases {
+  readonly chart: HTMLCanvasElement
+  readonly overlay: HTMLCanvasElement
+  readonly rulerX: HTMLCanvasElement
+  readonly rulerY: HTMLCanvasElement
+}
+
+/** Adapters come from `src/main.ts`; the renderer is made per canvas set once it is mounted. */
+export type ChartRendererFactory = (canvases: ChartCanvases) => ChartRenderer
 
 export const editorSessionKey: InjectionKey<EditorSession> = Symbol('editorSession')
 export const chartRendererKey: InjectionKey<ChartRendererFactory> = Symbol('chartRenderer')
