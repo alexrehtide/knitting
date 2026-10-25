@@ -9,6 +9,7 @@ import {
   type AutosaveRecord,
   type AutosaveStorage,
 } from './autosave'
+import type { AutosaveLock } from './autosaveLock'
 import type { ChartFileFormat } from './chartFile'
 import type { Delay } from './delay'
 import { createEditorSession, type EditorSession } from './editorSession'
@@ -47,15 +48,26 @@ interface Write {
   reject(): void
 }
 
-/** Storage whose writes wait until the test settles them. */
-function fakeStorage(stored?: unknown) {
+/** Storage whose writes wait until the test settles them; `log` tells loads and settled writes. */
+function fakeStorage(stored?: unknown, log: string[] = []) {
   const writes: Write[] = []
   const broken: unknown[] = []
   const storage: AutosaveStorage = {
-    load: async () => stored,
+    load: async () => {
+      log.push('load')
+      return stored
+    },
     save: (record) =>
       new Promise<void>((resolve, reject) => {
-        writes.push({ record, resolve, reject: () => reject(new Error('quota')) })
+        writes.push({
+          record,
+          resolve: () => {
+            log.push('save')
+            stored = record
+            resolve()
+          },
+          reject: () => reject(new Error('quota')),
+        })
       }),
     moveToBroken: async (record) => {
       broken.push(record)
@@ -65,15 +77,53 @@ function fakeStorage(stored?: unknown) {
   return { storage, writes, broken }
 }
 
-/** A document is the chart's size and the yarn of its first cell, enough to tell charts apart. */
+/** One lock for the tabs of a test, as Web Locks keep one for the tabs of a site. */
+function fakeLocks(log: string[] = []) {
+  let holder: { release?: () => Promise<void> } | null = null
+  function lock(): AutosaveLock {
+    const tab: { release?: () => Promise<void> } = {}
+    return {
+      tryAcquire: async () => {
+        if (holder) return false
+        holder = tab
+        return true
+      },
+      takeOver: async () => {
+        if (holder && holder !== tab) {
+          await holder.release?.()
+          log.push('release')
+        }
+        holder = tab
+      },
+      onTakeOver: (release) => (tab.release = release),
+    }
+  }
+  return { lock }
+}
+
+/**
+ * A document is the chart's size and the yarn of its first cell, enough to tell charts apart,
+ * and, for the tabs that hand a chart over, all of its cells.
+ */
 const format: ChartFileFormat = {
   write: () => ({ name: '', text: '' }),
   read: () => ({ ok: false, error: { code: 'not-kchart' } }),
-  toDocument: (chart) => ({ width: chart.width, height: chart.height, first: chart.cells[0] }),
+  toDocument: (chart) => ({
+    width: chart.width,
+    height: chart.height,
+    first: chart.cells[0],
+    cells: [...chart.cells],
+  }),
   readDocument: (document) => {
-    const { width, height, first } = document as { width: number; height: number; first: number }
+    const { width, height, first, cells } = document as {
+      width: number
+      height: number
+      first: number
+      cells?: number[]
+    }
     if (typeof width !== 'number') return { ok: false, error: { code: 'not-kchart' } }
     const chart = createChart(width, height, now)
+    if (cells) chart.cells.set(cells)
     chart.cells[0] = first
     return { ok: true, chart }
   },
@@ -93,16 +143,23 @@ function paint(session: EditorSession, column: number) {
   session.dispatch({ type: 'pointer-up' })
 }
 
-async function setup(stored?: unknown) {
+/** A tab of the editor: its own session and autosave over the storage and the lock it is given. */
+function openTab(storage: AutosaveStorage, lock: AutosaveLock) {
   const session = createEditorSession({ clock })
   session.dispatch({ type: 'replace-chart', chart: createChart(10, 8, now) })
-  const { storage, writes, broken } = fakeStorage(stored)
   const { delay, advance } = fakeDelay()
-  const autosave = createAutosave({ session, storage, format, delay })
+  const autosave = createAutosave({ session, storage, lock, format, delay })
   const events: AutosaveEvent[] = []
   autosave.subscribe((event) => events.push(event))
-  await autosave.restore()
-  return { session, autosave, storage, writes, broken, advance, events }
+  return { session, autosave, advance, events }
+}
+
+/** One tab that takes the free lock. */
+async function setup(stored?: unknown) {
+  const { storage, writes, broken } = fakeStorage(stored)
+  const tab = openTab(storage, fakeLocks().lock())
+  await tab.autosave.start()
+  return { ...tab, storage, writes, broken }
 }
 
 const chartOf = (record: AutosaveRecord) => record.document as { width: number; first: number }
@@ -119,7 +176,7 @@ describe('autosave writes', () => {
 
     advance(1)
     expect(writes).toHaveLength(1)
-    expect(writes[0]!.record).toEqual({
+    expect(writes[0]!.record).toMatchObject({
       document: { width: 10, height: 8, first: 1 },
       unsavedToFile: true,
     })
@@ -291,5 +348,95 @@ describe('autosave restore', () => {
       expect(session.state.chart.width).toBe(10)
       expect(session.state.unsavedToFile).toBe(false)
     }
+  })
+})
+
+describe('autosave in several tabs', () => {
+  function twoTabs() {
+    const log: string[] = []
+    const { storage, writes } = fakeStorage(undefined, log)
+    const locks = fakeLocks(log)
+    const first = openTab(storage, locks.lock())
+    const second = openTab(storage, locks.lock())
+    return { log, writes, first, second }
+  }
+
+  it('a tab that does not get the lock does not load the chart and does not write', async () => {
+    const { log, writes, first, second } = twoTabs()
+    await first.autosave.start()
+    expect(first.autosave.owner).toBe(true)
+
+    await second.autosave.start()
+    expect(second.autosave.owner).toBe(false)
+    expect(log).toEqual(['load'])
+
+    paint(second.session, 0)
+    second.advance(AUTOSAVE_DELAY)
+    second.autosave.flush()
+    expect(writes).toHaveLength(0)
+  })
+
+  it('on a takeover the old tab writes the pending change, lets the lock go, then the new tab reads it', async () => {
+    const { log, writes, first, second } = twoTabs()
+    await first.autosave.start()
+    await second.autosave.start()
+    paint(first.session, 3)
+    log.length = 0
+
+    const takeover = second.autosave.takeOver()
+    await settle()
+    expect(first.autosave.owner).toBe(false)
+    expect(first.events.at(-1)).toEqual({ type: 'owner' })
+    expect(writes).toHaveLength(1)
+    expect(log).toEqual([])
+
+    writes[0]!.resolve()
+    await takeover
+    expect(log).toEqual(['save', 'release', 'load'])
+    expect(second.autosave.owner).toBe(true)
+    expect(second.events.at(-1)).toEqual({ type: 'owner' })
+    expect(second.session.state.chart.cells[3]).toBe(1)
+    expect(second.session.state.unsavedToFile).toBe(true)
+  })
+
+  it('the old tab stops writing, and taking the lock back reads what the other tab wrote', async () => {
+    const { writes, first, second } = twoTabs()
+    await first.autosave.start()
+    await second.autosave.start()
+    await second.autosave.takeOver()
+
+    paint(first.session, 0)
+    first.advance(AUTOSAVE_DELAY)
+    expect(writes).toHaveLength(0)
+
+    paint(second.session, 5)
+    const back = first.autosave.takeOver()
+    await settle()
+    expect(writes).toHaveLength(1)
+    writes[0]!.resolve()
+    await back
+    expect(first.autosave.owner).toBe(true)
+    expect(second.autosave.owner).toBe(false)
+    expect(first.session.state.chart.cells[5]).toBe(1)
+    expect(first.session.state.chart.cells[0]).toBe(0)
+  })
+
+  it('a gesture in progress in the old tab is cancelled, not written', async () => {
+    const { writes, first, second } = twoTabs()
+    await first.autosave.start()
+    await second.autosave.start()
+    first.session.dispatch({
+      type: 'pointer-down',
+      cell: { row: 0, column: 0 },
+      button: 'primary',
+      shift: false,
+    })
+
+    const takeover = second.autosave.takeOver()
+    await settle()
+    expect(first.session.state.chart.cells[0]).toBe(0)
+    expect(writes.map((write) => chartOf(write.record).first)).toEqual([0])
+    writes[0]!.resolve()
+    await takeover
   })
 })

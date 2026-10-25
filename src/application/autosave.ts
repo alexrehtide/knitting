@@ -1,3 +1,4 @@
+import type { AutosaveLock } from './autosaveLock'
 import type { ChartFileFormat } from './chartFile'
 import type { Delay } from './delay'
 import type { EditorSession } from './editorSession'
@@ -25,17 +26,31 @@ export interface AutosaveStorage {
 
 export type AutosaveStatus = 'saved' | 'saving' | 'failed'
 
-/** `status` — the status changed; `failed` — a write failed after one that did not, once per series. */
-export type AutosaveEvent = { readonly type: 'status' } | { readonly type: 'failed' }
+/**
+ * `status` — the status changed; `failed` — a write failed after one that did not, once per series;
+ * `owner` — the tab took the lock and loaded the stored chart, or let the lock go to another tab.
+ */
+export type AutosaveEvent =
+  { readonly type: 'status' } | { readonly type: 'failed' } | { readonly type: 'owner' }
 
 export interface Autosave {
   readonly status: AutosaveStatus
+  /** This tab holds the lock of the autosave: it has loaded the stored chart and writes its changes. */
+  readonly owner: boolean
   /** The stored record that failed to restore, for «Скачать как есть»; `null` when there was none. */
   readonly brokenRecord: { readonly record: unknown } | null
   /** Closing the page now loses changes: writes fail and the chart has changes not in a file. */
   readonly unloadLoses: boolean
-  /** Loads the stored chart into the session, then starts writing its changes. Called once. */
-  restore(): Promise<void>
+  /**
+   * Takes the lock when no other tab holds it, loads the stored chart into the session and starts
+   * writing its changes; otherwise leaves the tab without the lock and the chart unloaded. Called once.
+   */
+  start(): Promise<void>
+  /**
+   * «Работать здесь»: the tab with the lock writes its pending change and lets it go, then this tab
+   * loads the stored chart and writes from now on.
+   */
+  takeOver(): Promise<void>
   /** Writes the pending change at once, as when the page is hidden. */
   flush(): void
   /** Returns the function that unsubscribes the listener. */
@@ -45,24 +60,31 @@ export interface Autosave {
 /**
  * Keeps the session's chart in the browser (docs/spec.md, «Автосохранение»): a write 500 ms after the
  * last patch, replacement or change of the mark of changes not in a file; writes go one at a time, each
- * with the chart as it is when it starts.
+ * with the chart as it is when it starts. Only the tab that holds the lock writes («Несколько вкладок»).
  */
 export function createAutosave({
   session,
   storage,
+  lock,
   format,
   delay,
 }: {
   session: EditorSession
   storage: AutosaveStorage
+  lock: AutosaveLock
   format: ChartFileFormat
   delay: Delay
 }): Autosave {
   let status: AutosaveStatus = 'saved'
   let brokenRecord: Autosave['brokenRecord'] = null
+  let owner = false
+  /** Stops taking the session's changes; set while this tab holds the lock. */
+  let unsubscribe: (() => void) | null = null
   /** The chart has changed since the last write started. */
   let pending = false
   let writing = false
+  /** The write in progress, or the last one. */
+  let lastWrite = Promise.resolve()
   /** A flush came during a write: the next write starts when it ends. */
   let flushAfterWrite = false
   let failing = false
@@ -93,7 +115,7 @@ export function createAutosave({
     cancelTimer = null
     if (!pending) return
     if (writing) flushAfterWrite = true
-    else void write()
+    else lastWrite = write()
   }
 
   async function write() {
@@ -129,6 +151,7 @@ export function createAutosave({
     return result.ok ? { chart: result.chart, unsavedToFile } : null
   }
 
+  /** Loads the stored chart into the session, then writes its changes. */
   async function restore() {
     let record: unknown
     try {
@@ -137,6 +160,7 @@ export function createAutosave({
       // Nothing to restore; the first write says whether the storage works.
       record = undefined
     }
+    brokenRecord = null
     if (record !== undefined) {
       const chart = restored(record)
       if (chart) {
@@ -151,16 +175,44 @@ export function createAutosave({
       }
     }
     lastUnsavedToFile = session.state.unsavedToFile
-    session.subscribe((event) => {
+    unsubscribe = session.subscribe((event) => {
       if (event.type === 'patch' || event.type === 'replaced') schedule()
       else if (event.type === 'state' && session.state.unsavedToFile !== lastUnsavedToFile)
         schedule()
     })
+    owner = true
+    emit({ type: 'owner' })
+  }
+
+  /** Another tab takes the lock over: the chart as it is now is written before the lock goes. */
+  async function release() {
+    owner = false
+    emit({ type: 'owner' })
+    // A gesture is not an edit until it ends: its cells go back, and the rollback is what gets written.
+    session.dispatch({ type: 'cancel-gesture' })
+    unsubscribe?.()
+    unsubscribe = null
+    flush()
+    while (writing) await lastWrite
+  }
+
+  lock.onTakeOver(release)
+
+  async function start() {
+    if (await lock.tryAcquire()) await restore()
+  }
+
+  async function takeOver() {
+    await lock.takeOver()
+    await restore()
   }
 
   return {
     get status() {
       return status
+    },
+    get owner() {
+      return owner
     },
     get brokenRecord() {
       return brokenRecord
@@ -168,7 +220,8 @@ export function createAutosave({
     get unloadLoses() {
       return status === 'failed' && session.state.unsavedToFile
     },
-    restore,
+    start,
+    takeOver,
     flush,
     subscribe(listener) {
       listeners.add(listener)

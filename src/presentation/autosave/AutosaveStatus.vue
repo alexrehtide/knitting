@@ -14,11 +14,15 @@ onScopeDispose(
   autosave.subscribe((event) => {
     status.value = autosave.status
     if (event.type === 'failed') toast.add({ title: t('autosave.failedToast'), color: 'error' })
+    if (event.type === 'owner' && autosave.owner) showBrokenRecord()
   }),
 )
 
-// The record failed to restore before the editor opened; it stays until the user downloads or closes it.
-onMounted(() => {
+// The record failed to restore before the editor opened, or on «Работать здесь»; the toast stays until
+// the user downloads or closes it.
+onMounted(showBrokenRecord)
+
+function showBrokenRecord() {
   const broken = autosave.brokenRecord
   if (!broken) return
   toast.add({
@@ -35,7 +39,7 @@ onMounted(() => {
       },
     ],
   })
-})
+}
 </script>
 
 <template>

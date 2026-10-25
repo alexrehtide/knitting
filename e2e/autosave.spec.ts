@@ -158,3 +158,31 @@ test('the tool and the line highlight flag survive a reload', async ({ page }) =
     page.getByRole('menuitemcheckbox', { name: 'Подсветка ряда и столбца' }),
   ).toHaveAttribute('aria-checked', 'false')
 })
+
+test('a second tab waits under «Редактор открыт в другой вкладке»; «Работать здесь» brings the edits of the first, which then waits', async ({
+  context,
+  page,
+}) => {
+  const otherTab = (page: Page) =>
+    page.getByRole('dialog', { name: 'Редактор открыт в другой вкладке' })
+  await page.goto('./')
+  await expect(status(page).getByText('Инструмент: Кисть')).toBeVisible()
+  await expect(otherTab(page)).toBeHidden()
+
+  const second = await context.newPage()
+  await second.goto('./')
+  await expect(otherTab(second)).toBeVisible()
+  await second.keyboard.press('KeyE')
+  await expect(status(second).getByText('Инструмент: Кисть')).toBeVisible()
+
+  // Within the debounce: the first tab writes this edit as it lets the lock go.
+  await paint(page, 1, 1)
+  await otherTab(second).getByRole('button', { name: 'Работать здесь' }).click()
+
+  await expect(otherTab(second)).toBeHidden()
+  await expect.poll(async () => probe(second, await cellCenter(second, 1, 1))).toEqual(WHITE)
+  await expect(unsavedLabel(second)).toBeVisible()
+  await expect(otherTab(page)).toBeVisible()
+  await page.keyboard.press('KeyE')
+  await expect(status(page).getByText('Инструмент: Кисть')).toBeVisible()
+})

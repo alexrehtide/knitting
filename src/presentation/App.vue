@@ -5,6 +5,7 @@ import { ru as uiRu } from '@nuxt/ui/locale'
 import UApp from '@nuxt/ui/components/App.vue'
 import UTabs from '@nuxt/ui/components/Tabs.vue'
 import AutosaveStatus from './autosave/AutosaveStatus.vue'
+import OtherTabScreen from './autosave/OtherTabScreen.vue'
 import ChartCanvas from './canvas/ChartCanvas.vue'
 import { useChartView } from './canvas/useChartView'
 import { provideCommands } from './commands/useCommands'
@@ -113,5 +114,6 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
         <span v-if="state.unsavedToFile">{{ t('status.unsavedToFile') }}</span>
       </footer>
     </div>
+    <OtherTabScreen />
   </UApp>
 </template>

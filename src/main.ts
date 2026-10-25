@@ -6,6 +6,7 @@ import { createChart } from './domain/chart'
 import { isValidChartDimension } from './domain/chartSize'
 import { createCanvasRenderer } from './infrastructure/canvasRenderer'
 import { createIndexedDbAutosave } from './infrastructure/indexedDbAutosave'
+import { createWebLockAutosave } from './infrastructure/webLockAutosave'
 import { kchartFormat } from './infrastructure/kchart'
 import { systemClock } from './infrastructure/systemClock'
 import { systemDelay } from './infrastructure/systemDelay'
@@ -23,6 +24,7 @@ const session = createEditorSession({ clock: systemClock })
 const autosave = createAutosave({
   session,
   storage: createIndexedDbAutosave(),
+  lock: createWebLockAutosave(),
   format: kchartFormat,
   delay: systemDelay,
 })
@@ -34,13 +36,14 @@ window.addEventListener('beforeunload', (event) => {
   if (autosave.unloadLoses) event.preventDefault()
 })
 
-// The editor opens on the restored chart, so the view fits it from the start.
-void autosave.restore().then(() => {
+// The editor opens on the restored chart, so the view fits it from the start; without the lock it opens
+// under the screen «Редактор открыт в другой вкладке».
+void autosave.start().then(() => {
   // Dev only: `?chart=500` opens a 500×500 chart with random cells to check zoom and scroll by hand.
   const devChartSize = import.meta.env.DEV
     ? Number(new URLSearchParams(location.search).get('chart'))
     : 0
-  if (isValidChartDimension(devChartSize)) {
+  if (autosave.owner && isValidChartDimension(devChartSize)) {
     // The chart is not in the session yet, so filling its grid directly bypasses no edit;
     // it replaces the restored chart, and the autosave keeps it.
     const chart = createChart(devChartSize, devChartSize, systemClock.now())
