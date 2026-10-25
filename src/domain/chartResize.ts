@@ -1,5 +1,6 @@
 import type { Chart } from './chart'
 import { isValidChartDimension } from './chartSize'
+import type { YarnId } from './palette'
 import type { SizePatch } from './patch'
 
 /** Rows or stitches added on each side as it is on screen; a negative number takes them away. */
@@ -12,6 +13,14 @@ export interface ResizeSides {
 
 export const NO_SIDES: ResizeSides = { top: 0, bottom: 0, left: 0, right: 0 }
 
+/** The size the sides give the chart, which may be out of 1–500. */
+export function resizedSize(
+  chart: Pick<Chart, 'width' | 'height'>,
+  { top, bottom, left, right }: ResizeSides,
+): { width: number; height: number } {
+  return { width: chart.width + left + right, height: chart.height + top + bottom }
+}
+
 /**
  * The patch that adds or takes away rows and stitches on the sides, with how many non-empty cells it
  * cuts off; `null` when no side changes or the size comes out of 1–500 on either axis. Added cells are
@@ -23,10 +32,9 @@ export function resizePatch(
 ): { patch: SizePatch; cut: number } | null {
   const { top, bottom, left, right } = sides
   if (top === 0 && bottom === 0 && left === 0 && right === 0) return null
-  const width = chart.width + left + right
-  const height = chart.height + top + bottom
+  const { width, height } = resizedSize(chart, sides)
   if (!isValidChartDimension(width) || !isValidChartDimension(height)) return null
-  const outside: { index: number; yarn: number }[] = []
+  const outside: { index: number; yarn: YarnId }[] = []
   chart.cells.forEach((yarn, index) => {
     if (yarn === 0) return
     const row = Math.floor(index / chart.width) + top

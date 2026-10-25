@@ -1,12 +1,12 @@
 <script setup lang="ts">
-import { computed, ref, watch } from 'vue'
+import { computed, ref, useTemplateRef, watch, watchEffect } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UAlert from '@nuxt/ui/components/Alert.vue'
 import UButton from '@nuxt/ui/components/Button.vue'
 import UFormField from '@nuxt/ui/components/FormField.vue'
 import UInputNumber from '@nuxt/ui/components/InputNumber.vue'
 import UModal from '@nuxt/ui/components/Modal.vue'
-import { NO_SIDES, resizePatch, type ResizeSides } from '../../domain/chartResize'
+import { NO_SIDES, resizedSize, resizePatch, type ResizeSides } from '../../domain/chartResize'
 import { isValidChartDimension, MAX_CHART_DIMENSION } from '../../domain/chartSize'
 import { useEditor } from '../editor/useEditor'
 
@@ -32,10 +32,7 @@ const sides = computed<ResizeSides>(() => ({
   right: fields.value.right ?? 0,
 }))
 
-const size = computed(() => ({
-  width: state.value.chart.width + sides.value.left + sides.value.right,
-  height: state.value.chart.height + sides.value.top + sides.value.bottom,
-}))
+const size = computed(() => resizedSize(state.value.chart, sides.value))
 
 const outOfRange = computed(
   () => !isValidChartDimension(size.value.width) || !isValidChartDimension(size.value.height),
@@ -62,6 +59,48 @@ const miniature = computed(() => {
   const height = Math.max(1, size.value.height)
   const scale = MINIATURE / Math.max(width, height)
   return { width: `${Math.max(24, width * scale)}px`, height: `${Math.max(24, height * scale)}px` }
+})
+
+// Added cells are lighter than the chart's own empty cells, so the new sides show.
+const EMPTY_COLOR = 0xffd4d4d8
+const ADDED_COLOR = 0xfff4f4f5
+
+/** Little-endian ABGR for an `ImageData` pixel. */
+function pixelOf(hex: string): number {
+  const rgb = Number.parseInt(hex.slice(1), 16)
+  return (0xff << 24) | ((rgb & 0xff) << 16) | (rgb & 0xff00) | ((rgb >> 16) & 0xff)
+}
+
+const canvas = useTemplateRef('miniatureCanvas')
+
+/** The chart as it will be, one pixel per cell: what is kept moved by the top and left sides. */
+watchEffect(() => {
+  const target = canvas.value
+  const { width, height } = size.value
+  if (!target || outOfRange.value) return
+  const { chart } = state.value
+  const { top, left } = sides.value
+  target.width = width
+  target.height = height
+  const context = target.getContext('2d')
+  if (!context) return
+  const image = context.createImageData(width, height)
+  const pixels = new Uint32Array(image.data.buffer)
+  const colors = new Map(chart.palette.map((y) => [y.id, pixelOf(y.color)]))
+  for (let row = 0; row < height; row++) {
+    for (let column = 0; column < width; column++) {
+      const r = row - top
+      const c = column - left
+      const inside = r >= 0 && r < chart.height && c >= 0 && c < chart.width
+      const yarn = inside ? (chart.cells[r * chart.width + c] ?? 0) : 0
+      pixels[row * width + column] = !inside
+        ? ADDED_COLOR
+        : yarn === 0
+          ? EMPTY_COLOR
+          : (colors.get(yarn) ?? EMPTY_COLOR)
+    }
+  }
+  context.putImageData(image, 0, 0)
 })
 
 const PLACES: Record<Side, string> = {
@@ -97,14 +136,20 @@ function apply() {
               @input="onTyped(side, $event)"
             />
           </UFormField>
-          <div class="col-start-2 row-start-2 flex size-32 items-center justify-center">
-            <div
-              class="flex items-center justify-center border-2 bg-elevated text-sm tabular-nums"
-              :class="outOfRange ? 'border-error text-error' : 'border-default'"
-              :style="miniature"
-            >
-              {{ t('resize.size', size) }}
+          <div class="col-start-2 row-start-2 flex flex-col items-center gap-1">
+            <div class="flex size-32 items-center justify-center">
+              <canvas
+                v-show="!outOfRange"
+                ref="miniatureCanvas"
+                class="border border-default [image-rendering:pixelated]"
+                :style="miniature"
+                :aria-label="t('resize.miniature')"
+                role="img"
+              />
             </div>
+            <span class="text-sm tabular-nums" :class="outOfRange ? 'text-error' : undefined">
+              {{ t('resize.size', size) }}
+            </span>
           </div>
         </div>
         <p v-if="outOfRange" class="text-sm text-error">

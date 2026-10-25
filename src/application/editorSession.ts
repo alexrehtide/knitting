@@ -299,12 +299,15 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     applyPatch(chart, patch)
     if (patch.kind === 'cells') updateStitchCounts(stitchCounts, patch.cells)
     // Cut cells take their stitches with them; counting afresh is cheaper than listing every cell.
-    if (patch.kind === 'size') stitchCounts = countStitches(chart.cells)
+    if (patch.kind === 'size') {
+      stitchCounts = countStitches(chart.cells)
+      update({ stitchCounts })
+    }
     const selection = repairYarnSelection(chart.palette, {
       current: state.currentYarn,
       previous: state.previousYarn,
     })
-    update({ currentYarn: selection.current, previousYarn: selection.previous, stitchCounts })
+    update({ currentYarn: selection.current, previousYarn: selection.previous })
     emit({ type: 'patch', patch })
   }
 

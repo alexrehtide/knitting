@@ -18,6 +18,9 @@ test('cutting off the column with a painted cell warns, then «Обрезать 
   await resize(page).getByRole('spinbutton', { name: 'Справа, петель' }).fill('-1')
 
   await expect(resize(page).getByText('39 × 40')).toBeVisible()
+  await expect(
+    resize(page).getByRole('img', { name: 'Схема после изменения размера' }),
+  ).toBeVisible()
   await expect(resize(page).getByText('Будет обрезана 1 непустая клетка')).toBeVisible()
   await resize(page).getByRole('button', { name: 'Обрезать и применить' }).click()
 
