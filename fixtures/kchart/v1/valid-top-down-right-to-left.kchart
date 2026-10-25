@@ -1,0 +1,24 @@
+{
+  "format": "kchart",
+  "version": 1,
+  "properties": {
+    "title": "Полоска",
+    "notes": "",
+    "gauge": { "stitches": 18, "rows": 24.5 },
+    "cellAspect": { "mode": "manual", "ratio": 0.75 },
+    "numbering": { "rows": "top-down", "stitches": "right-to-left" },
+    "majorStep": 1,
+    "createdAt": "2025-12-31T23:59:59.999Z",
+    "modifiedAt": "2026-03-01T00:00:00.000Z"
+  },
+  "palette": [
+    { "color": "#1e90ff", "pattern": "line-h" }
+  ],
+  "grid": {
+    "width": 5,
+    "height": 1,
+    "rows": [
+      [1, 5]
+    ]
+  }
+}

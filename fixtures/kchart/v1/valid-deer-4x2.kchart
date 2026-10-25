@@ -1,0 +1,26 @@
+{
+  "format": "kchart",
+  "version": 1,
+  "properties": {
+    "title": "Олени",
+    "notes": "",
+    "gauge": { "stitches": 22.5, "rows": 30 },
+    "cellAspect": { "mode": "auto" },
+    "numbering": { "rows": "bottom-up", "stitches": "right-to-left" },
+    "majorStep": 10,
+    "createdAt": "2026-10-25T10:00:00.000Z",
+    "modifiedAt": "2026-10-25T11:30:00.000Z"
+  },
+  "palette": [
+    { "color": "#f4f1ea", "pattern": null },
+    { "color": "#b22222", "pattern": "cross", "name": "Alize Lanagold 56" }
+  ],
+  "grid": {
+    "width": 4,
+    "height": 2,
+    "rows": [
+      [1, 4],
+      [0, 1, 2, 2, 1, 1]
+    ]
+  }
+}

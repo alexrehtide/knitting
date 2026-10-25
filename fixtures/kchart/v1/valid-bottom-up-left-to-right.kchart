@@ -1,0 +1,28 @@
+{
+  "format": "kchart",
+  "version": 1,
+  "properties": {
+    "title": "Snowflake",
+    "notes": "",
+    "gauge": { "stitches": 24, "rows": 32 },
+    "cellAspect": { "mode": "auto" },
+    "numbering": { "rows": "bottom-up", "stitches": "left-to-right" },
+    "majorStep": 10,
+    "createdAt": "2026-10-25T10:00:00.000Z",
+    "modifiedAt": "2026-10-25T10:00:00.000Z"
+  },
+  "palette": [
+    { "color": "#000080", "pattern": "square-outline" },
+    { "color": "#ffffff", "pattern": null, "name": "Drops Karisma 01" }
+  ],
+  "grid": {
+    "width": 2,
+    "height": 4,
+    "rows": [
+      [0, 2],
+      [2, 1, 0, 1],
+      [0, 1, 2, 1],
+      [1, 2]
+    ]
+  }
+}
