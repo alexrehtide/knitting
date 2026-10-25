@@ -1566,3 +1566,40 @@ describe('new chart', () => {
     expect(session.state.chart).toBe(chart)
   })
 })
+
+describe('chart size', () => {
+  it('resizes as one edit; one undo gives the size and the cells back, redo makes it again', () => {
+    const session = smallSession()
+    stroke(session, [{ row: 0, column: 0 }])
+    stroke(session, [{ row: 7, column: 9 }])
+    const before = new Uint16Array(session.state.chart.cells)
+
+    session.dispatch({ type: 'resize-chart', sides: { top: -1, bottom: 0, left: 2, right: -1 } })
+
+    expect([session.state.chart.width, session.state.chart.height]).toEqual([11, 7])
+    expect(painted(session)).toEqual([])
+    expect(session.state.stitchCounts.size).toBe(0)
+
+    session.dispatch({ type: 'undo' })
+    expect([session.state.chart.width, session.state.chart.height]).toEqual([10, 8])
+    expect(session.state.chart.cells).toEqual(before)
+    expect(session.state.stitchCounts.get(1)).toBe(2)
+
+    session.dispatch({ type: 'redo' })
+    expect([session.state.chart.width, session.state.chart.height]).toEqual([11, 7])
+    expect(session.state.canUndo).toBe(true)
+  })
+
+  it('ignores a size out of 1–500 and sides that change nothing', () => {
+    const session = smallSession()
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({ type: 'resize-chart', sides: { top: -8, bottom: 0, left: 0, right: 0 } })
+    session.dispatch({ type: 'resize-chart', sides: { top: 0, bottom: 0, left: 0, right: 491 } })
+    session.dispatch({ type: 'resize-chart', sides: { top: 0, bottom: 0, left: 0, right: 0 } })
+
+    expect(events).toEqual([])
+    expect(session.state.canUndo).toBe(false)
+  })
+})

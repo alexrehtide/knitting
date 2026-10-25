@@ -42,7 +42,7 @@ export interface ChartCanvases {
  * cells are transparent in it and show the «нет петли» hatch beneath in every display mode. In «узор»
  * and «цвет+узор» the pattern layer puts the icons over it from a cell of 8 CSS px; in «узор» the
  * bitmap then has white yarn cells. A cell patch repaints the changed cells of the bitmap and of the
- * cached tiles; a palette patch and `replaced` rebuild the bitmap and drop the tiles.
+ * cached tiles; a palette or size patch and `replaced` rebuild the bitmap and drop the tiles.
  * A property patch (numbering, major step, cell aspect) redraws the grid lines and the rulers.
  * The overlay and the rulers follow the viewport and the hovered cell; a hover redraws them alone.
  */
@@ -78,8 +78,9 @@ export function createCanvasRenderer(
       preview = null
       schedule({ chart: true, marks: true })
     } else if (event.type === 'patch') {
-      // A palette patch may recolour any cell or change its pattern, so the bitmap is made afresh.
-      if (event.patch.kind === 'palette') {
+      // A palette patch may recolour any cell or change its pattern, so the bitmap is made afresh;
+      // so does a size patch, which gives the chart other cells.
+      if (event.patch.kind === 'palette' || event.patch.kind === 'size') {
         bitmap = createBitmap(session.state.chart, whiteYarnCells)
         patterns.reset()
         preview = null
@@ -87,7 +88,10 @@ export function createCanvasRenderer(
         bitmap.paint(event.patch.cells)
         patterns.paint(event.patch.cells)
       }
-      schedule({ chart: true, marks: event.patch.kind === 'properties' })
+      schedule({
+        chart: true,
+        marks: event.patch.kind === 'properties' || event.patch.kind === 'size',
+      })
     } else if (event.type === 'preview') {
       showPreview()
       schedule({ marks: true })

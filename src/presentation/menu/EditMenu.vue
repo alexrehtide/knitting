@@ -1,15 +1,18 @@
 <script setup lang="ts">
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UButton from '@nuxt/ui/components/Button.vue'
 import UDropdownMenu, { type DropdownMenuItem } from '@nuxt/ui/components/DropdownMenu.vue'
 import { useCommandMenuItems, useCommands } from '../commands/useCommands'
 import { useEditor } from '../editor/useEditor'
+import ResizeChartModal from './ResizeChartModal.vue'
 
 const { t } = useI18n()
 const { state, dispatch } = useEditor()
+const resizeOpen = ref(false)
 
 // Off during a gesture, which the session ignores them in anyway.
+// `edit.resize` has no keys; the «Схема» tab opens the dialog through it too.
 useCommands([
   {
     id: 'edit.undo',
@@ -28,14 +31,23 @@ useCommands([
     run: () => dispatch({ type: 'redo' }),
     enabled: () => state.value.canRedo && !state.value.gestureActive,
   },
+  {
+    id: 'edit.resize',
+    label: 'menu.edit.resize',
+    keys: [],
+    run: () => (resizeOpen.value = true),
+    enabled: () => !state.value.gestureActive,
+  },
 ])
 
-const commandItems = useCommandMenuItems(['edit.undo', 'edit.redo'])
-const items = computed<DropdownMenuItem[][]>(() => [commandItems.value])
+const undoItems = useCommandMenuItems(['edit.undo', 'edit.redo'])
+const chartItems = useCommandMenuItems(['edit.resize'])
+const items = computed<DropdownMenuItem[][]>(() => [undoItems.value, chartItems.value])
 </script>
 
 <template>
   <UDropdownMenu :items="items" :content="{ align: 'start' }">
     <UButton :label="t('menu.edit.title')" color="neutral" variant="ghost" size="sm" />
   </UDropdownMenu>
+  <ResizeChartModal v-model:open="resizeOpen" />
 </template>

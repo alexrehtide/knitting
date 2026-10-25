@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, ref, watch, type Ref } from 'vue'
 import { useI18n } from 'vue-i18n'
+import UButton from '@nuxt/ui/components/Button.vue'
 import UFormField from '@nuxt/ui/components/FormField.vue'
 import UInput from '@nuxt/ui/components/Input.vue'
 import URadioGroup from '@nuxt/ui/components/RadioGroup.vue'
@@ -12,12 +13,16 @@ import {
   propertyError,
   type PropertyChanges,
 } from '../../domain/chartProperties'
+import { useCommandRegistry } from '../commands/useCommands'
 import { useEditor } from '../editor/useEditor'
 
 type Numbering = ChartProperties['numbering']
 
 const { t } = useI18n()
 const { state, dispatch } = useEditor()
+const registry = useCommandRegistry()
+// The dialog belongs to «Правка» → «Размер схемы».
+const resizeCommand = computed(() => registry.get('edit.resize'))
 
 const properties = computed(() => state.value.chart.properties)
 
@@ -146,6 +151,22 @@ function setNumbering(key: string) {
 
     <UFormField :label="t('properties.notes')">
       <UTextarea v-model="notes" class="w-full" :rows="3" autoresize @blur="commitNotes" />
+    </UFormField>
+
+    <UFormField :label="t('properties.size')">
+      <div class="flex items-center justify-between gap-2">
+        <span class="text-sm tabular-nums">{{
+          t('resize.size', { width: state.chart.width, height: state.chart.height })
+        }}</span>
+        <UButton
+          :label="t('properties.resize')"
+          color="neutral"
+          variant="outline"
+          size="sm"
+          :disabled="!resizeCommand || !registry.isAvailable(resizeCommand)"
+          @click="resizeCommand?.run()"
+        />
+      </div>
     </UFormField>
 
     <UFormField

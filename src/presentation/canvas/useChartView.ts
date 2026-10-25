@@ -8,7 +8,7 @@ import { cellAt, fitViewport, scrollBy, unboundedCellAt, zoomAt, zoomPercent } f
 /**
  * Zoom, scroll and the pointer over the canvas. They are view state, not edits, so they live here
  * rather than in the session. The view fits the chart when the canvas first gets a size, whenever
- * the chart is replaced and whenever its cell aspect changes.
+ * the chart is replaced and whenever its size or cell aspect changes.
  */
 export function useChartView(state: ShallowRef<EditorState>) {
   const viewport = shallowRef<Viewport>({ cellWidth: 1, cellHeight: 1, originX: 0, originY: 0 })
@@ -72,7 +72,8 @@ export function useChartView(state: ShallowRef<EditorState>) {
     viewport.value = scrollBy(viewport.value, dx, dy, chart.value, size.value)
   }
 
-  watch([chart, aspect], fit)
+  // A size patch gives the same chart another size.
+  watch([chart, aspect, () => state.value.chart.width, () => state.value.chart.height], fit)
 
   return {
     viewport,

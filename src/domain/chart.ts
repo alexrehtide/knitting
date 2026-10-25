@@ -20,10 +20,11 @@ export interface ChartProperties {
 }
 
 export interface Chart {
-  readonly width: number
-  readonly height: number
+  /** The size and the cells are replaced together by size patches. */
+  width: number
+  height: number
   /** Row-major, top row first; each cell holds a yarn id or 0 for an empty cell (ADR-0004). */
-  readonly cells: Uint16Array
+  cells: Uint16Array
   /** Replaced by palette patches, as cells are changed by cell patches. */
   palette: Palette
   /** Replaced by property patches; the editor also moves `modifiedAt` on each edit. */

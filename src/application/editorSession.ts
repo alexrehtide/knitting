@@ -33,6 +33,7 @@ import {
   type ChartPatch,
   type PlainPatch,
 } from '../domain/patch'
+import { resizePatch, type ResizeSides } from '../domain/chartResize'
 import { isValidChartDimension } from '../domain/chartSize'
 import { clampToGrid, rectangleCells } from '../domain/rectangle'
 import { countStitches, updateStitchCounts, type StitchCounts } from '../domain/stitchCount'
@@ -103,8 +104,8 @@ export interface EditorState {
 
 /**
  * One stream for every subscriber (ADR-0006):
- * `patch` — a patch was applied to the chart (a gesture's cells, its rollback, a palette or property edit,
- * undo, redo);
+ * `patch` — a patch was applied to the chart (a gesture's cells, its rollback, a palette, property or
+ * size edit, undo, redo);
  * a composite patch comes as one event per part;
  * `preview` — the gesture preview changed, the chart did not;
  * `replaced` — the whole chart was replaced (new chart, opened file);
@@ -137,6 +138,8 @@ export type EditorEvent =
  * then only saving clears the mark, as there is no history to undo back to a saved chart.
  * `new-chart` replaces the chart with an empty one of the size and gauge, with the default palette
  * and properties, and counts as saved; a size out of 1–500 or a gauge that is not positive is ignored.
+ * `resize-chart` adds or takes away rows and stitches on the sides as one edit, cutting the cells off the
+ * grid; sides that change nothing or a size out of 1–500 are ignored.
  */
 export type EditorCommand =
   | { readonly type: 'replace-chart'; readonly chart: Chart; readonly unsavedToFile?: boolean }
@@ -171,6 +174,7 @@ export type EditorCommand =
   | { readonly type: 'remove-yarn'; readonly yarn: YarnId; readonly replacement?: YarnId }
   | { readonly type: 'move-yarn'; readonly yarn: YarnId; readonly position: number }
   | { readonly type: 'update-properties'; readonly changes: PropertyChanges }
+  | { readonly type: 'resize-chart'; readonly sides: ResizeSides }
   | { readonly type: 'undo' }
   | { readonly type: 'redo' }
   | { readonly type: 'mark-saved' }
@@ -294,11 +298,13 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     const { chart } = state
     applyPatch(chart, patch)
     if (patch.kind === 'cells') updateStitchCounts(stitchCounts, patch.cells)
+    // Cut cells take their stitches with them; counting afresh is cheaper than listing every cell.
+    if (patch.kind === 'size') stitchCounts = countStitches(chart.cells)
     const selection = repairYarnSelection(chart.palette, {
       current: state.currentYarn,
       previous: state.previousYarn,
     })
-    update({ currentYarn: selection.current, previousYarn: selection.previous })
+    update({ currentYarn: selection.current, previousYarn: selection.previous, stitchCounts })
     emit({ type: 'patch', patch })
   }
 
@@ -632,6 +638,13 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
         if (!patch) break
         record(patch)
         apply(patch)
+        break
+      }
+      case 'resize-chart': {
+        const resize = resizePatch(state.chart, command.sides)
+        if (!resize) break
+        record(resize.patch)
+        apply(resize.patch)
         break
       }
       case 'undo': {
