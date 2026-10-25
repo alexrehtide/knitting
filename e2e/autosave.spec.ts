@@ -100,6 +100,7 @@ test('a broken record gives an empty chart, a toast to download it as it is, and
   await expect(status(page).getByText('Размер: 40 × 40')).toBeVisible()
   await expect(unsavedLabel(page)).toBeHidden()
   expect(await slot(page, 'autosave-broken')).toEqual(broken)
+  expect(await slot(page, 'autosave')).toBeUndefined()
 
   const download = page.waitForEvent('download')
   await toast.getByRole('button', { name: 'Скачать как есть' }).click()

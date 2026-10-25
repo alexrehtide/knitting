@@ -2,7 +2,7 @@
 import { onMounted, onScopeDispose, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useToast } from '@nuxt/ui/composables/useToast'
-import { downloadText } from '../editor/download'
+import { downloadJson } from '../editor/download'
 import { autosaveKey, injectStrict } from '../editor/injection'
 
 const { t } = useI18n()
@@ -31,7 +31,7 @@ onMounted(() => {
         color: 'neutral',
         variant: 'outline',
         onClick: () =>
-          downloadText('autosave-broken.json', JSON.stringify(broken.record, null, 2) ?? ''),
+          downloadJson('autosave-broken.json', JSON.stringify(broken.record, null, 2) ?? ''),
       },
     ],
   })

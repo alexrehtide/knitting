@@ -1,4 +1,5 @@
 import type { ChartFileFormat } from './chartFile'
+import type { Delay } from './delay'
 import type { EditorSession } from './editorSession'
 
 /** How long after the last change the chart is written (docs/spec.md, «Автосохранение»). */
@@ -18,12 +19,9 @@ export interface AutosaveStorage {
   /** The stored record as it is, or `undefined` when there is none. */
   load(): Promise<unknown>
   save(record: AutosaveRecord): Promise<void>
-  /** Puts a record that failed to restore into the `autosave-broken` slot, over the one there. */
-  saveBroken(record: unknown): Promise<void>
+  /** Moves a record that failed to restore to the `autosave-broken` slot, over the one there. */
+  moveToBroken(record: unknown): Promise<void>
 }
-
-/** Runs `callback` after `ms`; the returned function cancels it. */
-export type Delay = (callback: () => void, ms: number) => () => void
 
 export type AutosaveStatus = 'saved' | 'saving' | 'failed'
 
@@ -70,7 +68,7 @@ export function createAutosave({
   let failing = false
   let cancelTimer: (() => void) | null = null
   /** The mark of changes not in a file as of the last change the autosave took. */
-  let unsavedToFile = session.state.unsavedToFile
+  let lastUnsavedToFile = session.state.unsavedToFile
   const listeners = new Set<(event: AutosaveEvent) => void>()
 
   function emit(event: AutosaveEvent) {
@@ -85,7 +83,7 @@ export function createAutosave({
 
   function schedule() {
     pending = true
-    unsavedToFile = session.state.unsavedToFile
+    lastUnsavedToFile = session.state.unsavedToFile
     cancelTimer?.()
     cancelTimer = delay(flush, AUTOSAVE_DELAY)
   }
@@ -146,16 +144,17 @@ export function createAutosave({
       } else {
         brokenRecord = { record }
         try {
-          await storage.saveBroken(record)
+          await storage.moveToBroken(record)
         } catch {
           // The record is still offered for download.
         }
       }
     }
-    unsavedToFile = session.state.unsavedToFile
+    lastUnsavedToFile = session.state.unsavedToFile
     session.subscribe((event) => {
       if (event.type === 'patch' || event.type === 'replaced') schedule()
-      else if (event.type === 'state' && session.state.unsavedToFile !== unsavedToFile) schedule()
+      else if (event.type === 'state' && session.state.unsavedToFile !== lastUnsavedToFile)
+        schedule()
     })
   }
 

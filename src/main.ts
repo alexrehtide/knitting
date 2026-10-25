@@ -41,7 +41,8 @@ void autosave.restore().then(() => {
     ? Number(new URLSearchParams(location.search).get('chart'))
     : 0
   if (isValidChartDimension(devChartSize)) {
-    // The chart is not in the session yet, so filling its grid directly bypasses no edit.
+    // The chart is not in the session yet, so filling its grid directly bypasses no edit;
+    // it replaces the restored chart, and the autosave keeps it.
     const chart = createChart(devChartSize, devChartSize, systemClock.now())
     for (let i = 0; i < chart.cells.length; i++) chart.cells[i] = Math.floor(Math.random() * 3)
     session.dispatch({ type: 'replace-chart', chart })

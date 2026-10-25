@@ -8,9 +8,9 @@ import {
   type AutosaveEvent,
   type AutosaveRecord,
   type AutosaveStorage,
-  type Delay,
 } from './autosave'
 import type { ChartFileFormat } from './chartFile'
+import type { Delay } from './delay'
 import { createEditorSession, type EditorSession } from './editorSession'
 
 const now = new Date('2026-10-25T10:00:00.000Z')
@@ -57,8 +57,9 @@ function fakeStorage(stored?: unknown) {
       new Promise<void>((resolve, reject) => {
         writes.push({ record, resolve, reject: () => reject(new Error('quota')) })
       }),
-    saveBroken: async (record) => {
+    moveToBroken: async (record) => {
       broken.push(record)
+      stored = undefined
     },
   }
   return { storage, writes, broken }
@@ -101,7 +102,7 @@ async function setup(stored?: unknown) {
   const events: AutosaveEvent[] = []
   autosave.subscribe((event) => events.push(event))
   await autosave.restore()
-  return { session, autosave, writes, broken, advance, events }
+  return { session, autosave, storage, writes, broken, advance, events }
 }
 
 const chartOf = (record: AutosaveRecord) => record.document as { width: number; first: number }
@@ -282,9 +283,10 @@ describe('autosave restore', () => {
       { document: { width: 4, height: 2, first: 0 } },
       'text',
     ]) {
-      const { session, autosave, broken } = await setup(stored)
+      const { session, autosave, storage, broken } = await setup(stored)
 
       expect(broken).toEqual([stored])
+      expect(await storage.load()).toBeUndefined()
       expect(autosave.brokenRecord).toEqual({ record: stored })
       expect(session.state.chart.width).toBe(10)
       expect(session.state.unsavedToFile).toBe(false)

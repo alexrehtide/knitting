@@ -37,10 +37,17 @@ export function createIndexedDbAutosave(): AutosaveStorage {
     })
   }
 
-  /** Resolves once the transaction is committed: a quota error only shows as its abort. */
-  async function put(key: string, value: unknown) {
+  /**
+   * Writes in one transaction, resolving once it is committed: a quota error only shows as its abort.
+   * `undefined` deletes the key.
+   */
+  async function put(values: Record<string, unknown>) {
     const transaction = (await open()).transaction(AUTOSAVE_STORE, 'readwrite')
-    transaction.objectStore(AUTOSAVE_STORE).put(value, key)
+    const store = transaction.objectStore(AUTOSAVE_STORE)
+    for (const [key, value] of Object.entries(values)) {
+      if (value === undefined) store.delete(key)
+      else store.put(value, key)
+    }
     return new Promise<void>((resolve, reject) => {
       transaction.oncomplete = () => resolve()
       transaction.onabort = () => reject(transaction.error ?? new Error('IndexedDB write aborted'))
@@ -50,7 +57,7 @@ export function createIndexedDbAutosave(): AutosaveStorage {
 
   return {
     load: () => get(AUTOSAVE_KEY),
-    save: (record) => put(AUTOSAVE_KEY, record),
-    saveBroken: (record) => put(AUTOSAVE_BROKEN_KEY, record),
+    save: (record) => put({ [AUTOSAVE_KEY]: record }),
+    moveToBroken: (record) => put({ [AUTOSAVE_BROKEN_KEY]: record, [AUTOSAVE_KEY]: undefined }),
   }
 }

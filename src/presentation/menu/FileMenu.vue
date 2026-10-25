@@ -6,7 +6,7 @@ import UDropdownMenu, { type DropdownMenuItem } from '@nuxt/ui/components/Dropdo
 import { useToast } from '@nuxt/ui/composables/useToast'
 import type { KchartError } from '../../application/chartFile'
 import { useCommandMenuItems, useCommands } from '../commands/useCommands'
-import { downloadText } from '../editor/download'
+import { downloadJson } from '../editor/download'
 import { chartFileFormatKey, injectStrict } from '../editor/injection'
 import { useEditor } from '../editor/useEditor'
 import SaveChangesModal, { type SaveChangesChoice } from './SaveChangesModal.vue'
@@ -21,7 +21,7 @@ const saveChangesOpen = ref(false)
 /** Starts the `.kchart` download; the browser does not report the write, so the chart counts as saved. */
 function save() {
   const file = format.write(state.value.chart)
-  downloadText(file.name, file.text)
+  downloadJson(file.name, file.text)
   dispatch({ type: 'mark-saved' })
 }
 
