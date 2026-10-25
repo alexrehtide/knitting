@@ -1,0 +1,67 @@
+<!doctype html><meta charset="utf-8"><body><pre id="out">running</pre><script>
+const W=500,H=500,N=30;
+const grid=new Uint16Array(W*H);
+let s=1;const rnd=()=>(s=(s*1103515245+12345)&0x7fffffff)/0x7fffffff;
+// blobs: runs of same colour, ~realistic chart
+for(let y=0;y<H;y++)for(let x=0;x<W;x++)grid[y*W+x]=((Math.floor(x/7)*31+Math.floor(y/5)*17)%N)+ (rnd()<0.1?0:0);
+for(let i=0;i<grid.length;i++) if(rnd()<0.15) grid[i]=Math.floor(rnd()*(N+1));
+const colors=[null];for(let i=1;i<=N;i++)colors.push(`hsl(${i*360/N} 70% 55%)`);
+const rgba=new Uint32Array(N+1);rgba[0]=0xffffffff;
+for(let i=1;i<=N;i++){const c=document.createElement('canvas').getContext('2d');c.fillStyle=colors[i];c.fillRect(0,0,1,1);const d=c.getImageData(0,0,1,1).data;rgba[i]=(255<<24)|(d[2]<<16)|(d[1]<<8)|d[0];}
+const VW=1600,VH=1000;
+const cv=document.createElement('canvas');cv.width=VW;cv.height=VH;document.body.appendChild(cv);
+const ctx=cv.getContext('2d',{alpha:false});
+function flush(){ctx.getImageData(0,0,1,1);} // force GPU/raster sync
+function time(name,fn,reps=10){fn();flush();const t0=performance.now();for(let r=0;r<reps;r++)fn();flush();return [name,((performance.now()-t0)/reps).toFixed(2)];}
+function visible(cs){return [Math.min(W,Math.ceil(VW/cs)),Math.min(H,Math.ceil(VH/cs))];}
+// A: fillRect per cell, fillStyle switch per cell
+function A(cs){const [vw,vh]=visible(cs);ctx.fillStyle='#fff';ctx.fillRect(0,0,VW,VH);for(let y=0;y<vh;y++)for(let x=0;x<vw;x++){const v=grid[y*W+x];if(!v)continue;ctx.fillStyle=colors[v];ctx.fillRect(x*cs,y*cs,cs,cs);}}
+// A2: grouped by colour, horizontal runs merged
+function A2(cs){const [vw,vh]=visible(cs);ctx.fillStyle='#fff';ctx.fillRect(0,0,VW,VH);const paths=[];for(let i=0;i<=N;i++)paths.push(new Path2D());
+ for(let y=0;y<vh;y++){let x=0;while(x<vw){const v=grid[y*W+x];let e=x+1;while(e<vw&&grid[y*W+e]===v)e++;if(v)paths[v].rect(x*cs,y*cs,(e-x)*cs,cs);x=e;}}
+ for(let i=1;i<=N;i++){ctx.fillStyle=colors[i];ctx.fill(paths[i]);}}
+// B: 1px-per-cell bitmap + scaled drawImage
+const bm=document.createElement('canvas');bm.width=W;bm.height=H;const bctx=bm.getContext('2d');const img=bctx.createImageData(W,H);const u32=new Uint32Array(img.data.buffer);
+function buildBitmap(){for(let i=0;i<grid.length;i++)u32[i]=rgba[grid[i]];bctx.putImageData(img,0,0);}
+function B(cs){const [vw,vh]=visible(cs);ctx.imageSmoothingEnabled=false;ctx.drawImage(bm,0,0,vw,vh,0,0,vw*cs,vh*cs);}
+function Bcell(){const i=1234;u32[i]=rgba[3];bctx.putImageData(img,0,0,i%W,(i/W)|0,1,1);}
+// grid lines as one path
+function G(cs){const [vw,vh]=visible(cs);ctx.beginPath();for(let x=0;x<=vw;x++){ctx.moveTo(x*cs+0.5,0);ctx.lineTo(x*cs+0.5,vh*cs);}for(let y=0;y<=vh;y++){ctx.moveTo(0,y*cs+0.5);ctx.lineTo(vw*cs,y*cs+0.5);}ctx.strokeStyle='rgba(0,0,0,.25)';ctx.lineWidth=1;ctx.stroke();}
+// patterns: 16 tile canvases
+const pats=[null];for(let i=1;i<=N;i++){const t=document.createElement('canvas');t.width=t.height=8;const c=t.getContext('2d');c.fillStyle='#000';if(i%3==0){for(let k=0;k<8;k++)c.fillRect(k,k,1,1);}else if(i%3==1){c.fillRect(2,2,2,2);c.fillRect(6,6,2,2);}else{c.fillRect(0,3,8,1);c.fillRect(3,0,1,8);}pats.push(ctx.createPattern(t,'repeat'));}
+function P(cs){const [vw,vh]=visible(cs);const paths=[];for(let i=0;i<=N;i++)paths.push(new Path2D());
+ for(let y=0;y<vh;y++){let x=0;while(x<vw){const v=grid[y*W+x];let e=x+1;while(e<vw&&grid[y*W+e]===v)e++;if(v)paths[v].rect(x*cs,y*cs,(e-x)*cs,cs);x=e;}}
+ for(let i=1;i<=N;i++){ctx.fillStyle=pats[i];ctx.fill(paths[i]);}}
+// pattern bitmap: whole grid baked at cs px/cell into an offscreen (tile cache) -> blit
+function cellDirty(cs){ctx.fillStyle=colors[5];ctx.fillRect(10*cs,10*cs,cs,cs);}
+
+const stampCache=new Map();
+function stamp(v,cs){const k=v*1000+cs;let t=stampCache.get(k);if(!t){t=document.createElement('canvas');t.width=t.height=cs;const c=t.getContext('2d');c.fillStyle=colors[v];c.fillRect(0,0,cs,cs);c.fillStyle=pats[v];c.fillRect(0,0,cs,cs);stampCache.set(k,t);}return t;}
+function S(cs){const [vw,vh]=visible(cs);ctx.fillStyle='#fff';ctx.fillRect(0,0,VW,VH);for(let y=0;y<vh;y++)for(let x=0;x<vw;x++){const v=grid[y*W+x];if(v)ctx.drawImage(stamp(v,cs),x*cs,y*cs);}}
+const TS=64;
+function bakeTile(cs,tx,ty){const t=document.createElement('canvas');t.width=t.height=TS*cs;const c=t.getContext('2d',{alpha:false});c.fillStyle='#fff';c.fillRect(0,0,t.width,t.height);for(let y=0;y<TS;y++)for(let x=0;x<TS;x++){const gx=tx*TS+x,gy=ty*TS+y;if(gx>=W||gy>=H)continue;const v=grid[gy*W+gx];if(v)c.drawImage(stamp(v,cs),x*cs,y*cs);}return t;}
+let tiles=null;
+function bakeAll(cs){tiles=[];const [vw,vh]=visible(cs);for(let ty=0;ty*TS<vh;ty++)for(let tx=0;tx*TS<vw;tx++)tiles.push([tx,ty,bakeTile(cs,tx,ty)]);}
+function T(cs){for(const [tx,ty,t] of tiles)ctx.drawImage(t,tx*TS*cs+0.0,ty*TS*cs);}
+
+// R: JS raster of the whole viewport (colour+pattern) into ImageData, then putImageData
+const PT=8;const patBits=[null];for(let i=1;i<=N;i++){const c=document.createElement('canvas');c.width=c.height=PT;const x=c.getContext('2d');x.fillStyle=pats[i];x.fillRect(0,0,PT,PT);const d=x.getImageData(0,0,PT,PT).data;const b=new Uint8Array(PT*PT);for(let k=0;k<PT*PT;k++)b[k]=d[k*4+3]>0?1:0;patBits.push(b);}
+const vimg=ctx.createImageData(VW,VH);const v32=new Uint32Array(vimg.data.buffer);
+function R(cs){const [vw,vh]=visible(cs);const lim=vw*cs,limy=vh*cs;let p=0;const ink=0xff000000;
+ for(let sy=0;sy<VH;sy++){const gy=(sy/cs)|0;const row=gy*W;const py=(sy%PT)*PT;for(let sx=0;sx<VW;sx++,p++){if(sx>=lim||sy>=limy){v32[p]=0xffffffff;continue;}const v=grid[row+((sx/cs)|0)];v32[p]=v&&patBits[v][py+(sx%PT)]?ink:rgba[v];}}
+ ctx.putImageData(vimg,0,0);}
+const res=[];
+res.push(time('buildBitmap 500x500 (LUT+putImageData)',buildBitmap));
+res.push(time('B: putImageData 1 cell',Bcell,100));
+for(const cs of [2,4,8,16,32]){
+ const [vw,vh]=visible(cs);res.push(['--- cell '+cs+'px, visible cells',vw*vh]);
+ res.push(time('A  fillRect/cell',()=>A(cs),5));
+ res.push(time('A2 runs+Path2D per colour',()=>A2(cs),5));
+ res.push(time('B  scaled drawImage of bitmap',()=>B(cs),20));
+ if(cs>=8)res.push(time('G  grid lines 1 path',()=>G(cs),10));
+ if(cs>=8){res.push(time('P  pattern fill runs',()=>P(cs),5));res.push(time('R  JS raster viewport colour+pattern',()=>R(cs),5));res.push(time('S  cached stamp drawImage/cell',()=>S(cs),5));res.push(time('T0 bake visible tiles 64x64',()=>bakeAll(cs),2));res.push(time('T  blit cached tiles (pan frame)',()=>T(cs),20));}
+ res.push(time('dirty 1 cell fillRect',()=>cellDirty(cs),100));
+}
+document.getElementById('out').textContent=navigator.userAgent+'\nviewport '+VW+'x'+VH+'\n'+res.map(r=>r.join('\t')).join('\n');
+document.title='done';
+</script>
