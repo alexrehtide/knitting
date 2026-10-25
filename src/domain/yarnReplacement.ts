@@ -1,26 +1,25 @@
 import type { Chart } from './chart'
 import { removeYarn, type Palette, type YarnId } from './palette'
-import type { CellChange, ChartPatch } from './patch'
+import type { CellChange, CellsPatch, ChartPatch } from './patch'
 
-/**
- * The patch that puts `replacement` (0 — empty, «нет петли») in every cell of the yarn; with `remove`
- * it also drops the yarn from the palette, as one edit whose inverse puts the yarn back in its place.
- */
-export function yarnReplacementPatch(
-  chart: Chart,
-  yarn: YarnId,
-  replacement: YarnId,
-  { remove }: { remove: boolean },
-): ChartPatch {
+/** The patch that puts `replacement` (0 — empty, «нет петли») in every cell of the yarn. */
+export function yarnReplacementPatch(chart: Chart, yarn: YarnId, replacement: YarnId): CellsPatch {
   const cells: CellChange[] = []
   chart.cells.forEach((id, index) => {
     if (id === yarn) cells.push({ index, before: yarn, after: replacement })
   })
-  if (!remove) return { kind: 'cells', cells }
+  return { kind: 'cells', cells }
+}
+
+/**
+ * The replacement of the yarn's cells and its removal from the palette as one edit, whose inverse
+ * puts the yarn back in its place with its id.
+ */
+export function yarnRemovalPatch(chart: Chart, yarn: YarnId, replacement: YarnId): ChartPatch {
   return {
     kind: 'composite',
     parts: [
-      { kind: 'cells', cells },
+      yarnReplacementPatch(chart, yarn, replacement),
       { kind: 'palette', before: chart.palette, after: removeYarn(chart.palette, yarn) },
     ],
   }

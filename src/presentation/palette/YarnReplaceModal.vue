@@ -3,41 +3,44 @@ import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UButton from '@nuxt/ui/components/Button.vue'
 import UModal from '@nuxt/ui/components/Modal.vue'
-import type { YarnId } from '../../domain/palette'
+import type { Yarn, YarnId } from '../../domain/palette'
 import { useEditor } from '../editor/useEditor'
 import YarnSwatch from './YarnSwatch.vue'
 
-/** The yarn to replace; `remove` — the replacement removes it from the palette too. */
-export interface YarnReplacement {
+/** The yarn whose cells the dialog replaces; `remove` — it goes from the palette too. */
+export interface ReplacedYarn {
   readonly yarn: YarnId
   readonly remove: boolean
 }
 
 const open = defineModel<boolean>('open', { required: true })
-const { replacement } = defineProps<{ replacement: YarnReplacement | null }>()
+const { target } = defineProps<{ target: ReplacedYarn | null }>()
 
 const { t } = useI18n()
 const { state, dispatch } = useEditor()
 
 /** The yarn chosen to stand in for the replaced one; 0 — «пусто», `null` — nothing chosen yet. */
 const chosen = ref<YarnId | null>(null)
-watch(open, (isOpen) => {
-  if (isOpen) chosen.value = null
-})
 
 const rows = computed(() =>
   state.value.chart.palette.map((yarn, i) => ({
     yarn,
-    number: i + 1,
     label: t('palette.select', { number: i + 1, name: yarn.name || t('palette.unnamed') }),
   })),
 )
-const replaced = computed(() => rows.value.find((row) => row.yarn.id === replacement?.yarn))
-const options = computed(() => rows.value.filter((row) => row.yarn.id !== replacement?.yarn))
+const options = computed(() => rows.value.filter((row) => row.yarn.id !== target?.yarn))
+// The replaced yarn as it was on opening: while the dialog closes, it has 0 stitches or is gone.
+const replaced = ref<{ yarn: Yarn; label: string; stitches: number } | null>(null)
+watch(open, (isOpen) => {
+  if (!isOpen) return
+  chosen.value = null
+  const row = rows.value.find((r) => r.yarn.id === target?.yarn)
+  replaced.value = row ? { ...row, stitches: state.value.stitchCounts.get(row.yarn.id) ?? 0 } : null
+})
 
 function confirm() {
-  if (!replacement || chosen.value === null) return
-  const { yarn, remove } = replacement
+  if (!target || chosen.value === null) return
+  const { yarn, remove } = target
   dispatch({ type: remove ? 'remove-yarn' : 'replace-yarn', yarn, replacement: chosen.value })
   open.value = false
 }
@@ -47,7 +50,7 @@ function confirm() {
   <UModal
     v-model:open="open"
     :title="t('yarnReplace.title')"
-    :description="t(replacement?.remove ? 'yarnReplace.removeHint' : 'yarnReplace.replaceHint')"
+    :description="t(target?.remove ? 'yarnReplace.removeHint' : 'yarnReplace.replaceHint')"
   >
     <template #body>
       <div v-if="replaced" class="flex flex-col gap-4">
@@ -59,7 +62,7 @@ function confirm() {
           />
           <span class="min-w-0 flex-1 truncate">{{ replaced.label }}</span>
           <span class="text-muted tabular-nums">{{
-            t('palette.stitches', state.stitchCounts.get(replaced.yarn.id) ?? 0)
+            t('palette.stitches', replaced.stitches)
           }}</span>
         </div>
         <fieldset class="flex flex-col gap-1.5">
@@ -113,7 +116,7 @@ function confirm() {
           @click="open = false"
         />
         <UButton
-          :label="t(replacement?.remove ? 'yarnReplace.replaceAndRemove' : 'yarnReplace.replace')"
+          :label="t(target?.remove ? 'yarnReplace.replaceAndRemove' : 'yarnReplace.replace')"
           :disabled="chosen === null"
           @click="confirm"
         />

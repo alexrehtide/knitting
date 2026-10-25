@@ -22,7 +22,11 @@ import {
 } from '../domain/patch'
 import { clampToGrid, rectangleCells } from '../domain/rectangle'
 import { countStitches, updateStitchCounts, type StitchCounts } from '../domain/stitchCount'
-import { selectionAfterRemoval, yarnReplacementPatch } from '../domain/yarnReplacement'
+import {
+  selectionAfterRemoval,
+  yarnRemovalPatch,
+  yarnReplacementPatch,
+} from '../domain/yarnReplacement'
 import { createHistory } from './history'
 
 /** Size of the chart the editor starts with when there is nothing to restore. */
@@ -536,7 +540,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
       case 'replace-yarn': {
         const { yarn, replacement } = command
         if (!canReplace(yarn, replacement) || !stitchCounts.has(yarn)) break
-        const patch = yarnReplacementPatch(state.chart, yarn, replacement, { remove: false })
+        const patch = yarnReplacementPatch(state.chart, yarn, replacement)
         record(patch)
         apply(patch)
         break
@@ -550,7 +554,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
           break
         }
         if (!canReplace(yarn, replacement)) break
-        const patch = yarnReplacementPatch(state.chart, yarn, replacement, { remove: true })
+        const patch = yarnRemovalPatch(state.chart, yarn, replacement)
         const selection = selectionAfterRemoval(
           removeYarn(palette, yarn),
           { current: state.currentYarn, previous: state.previousYarn },

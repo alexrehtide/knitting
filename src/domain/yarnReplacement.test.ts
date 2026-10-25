@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { createChart } from './chart'
 import { addYarn, type Palette } from './palette'
 import { applyPatch, invertPatch } from './patch'
-import { selectionAfterRemoval, yarnReplacementPatch } from './yarnReplacement'
+import { selectionAfterRemoval, yarnRemovalPatch, yarnReplacementPatch } from './yarnReplacement'
 
 const now = new Date('2026-10-25T10:00:00.000Z')
 
@@ -24,7 +24,7 @@ describe('yarnReplacementPatch', () => {
   it('puts the replacement in every cell of the yarn and keeps the yarn in the palette', () => {
     const chart = chartWithThreeYarns()
 
-    applyPatch(chart, yarnReplacementPatch(chart, 2, 3, { remove: false }))
+    applyPatch(chart, yarnReplacementPatch(chart, 2, 3))
 
     expect([...chart.cells]).toEqual([3, 1, 3, 0, 3, 3])
     expect(ids(chart.palette)).toEqual([1, 2, 3])
@@ -33,7 +33,7 @@ describe('yarnReplacementPatch', () => {
   it('empties the cells when the replacement is 0', () => {
     const chart = chartWithThreeYarns()
 
-    applyPatch(chart, yarnReplacementPatch(chart, 2, 0, { remove: false }))
+    applyPatch(chart, yarnReplacementPatch(chart, 2, 0))
 
     expect([...chart.cells]).toEqual([0, 1, 0, 0, 3, 0])
   })
@@ -42,7 +42,7 @@ describe('yarnReplacementPatch', () => {
     const chart = chartWithThreeYarns()
     const palette = chart.palette
 
-    const patch = yarnReplacementPatch(chart, 2, 1, { remove: true })
+    const patch = yarnRemovalPatch(chart, 2, 1)
     applyPatch(chart, patch)
     expect([...chart.cells]).toEqual([1, 1, 1, 0, 3, 1])
     expect(ids(chart.palette)).toEqual([1, 3])

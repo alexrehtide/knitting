@@ -9,7 +9,7 @@ import { patternClashCount, patternUses } from '../../domain/palette'
 import { editorSessionKey, injectStrict } from '../editor/injection'
 import { useEditor } from '../editor/useEditor'
 import YarnEditor from './YarnEditor.vue'
-import YarnReplaceModal, { type YarnReplacement } from './YarnReplaceModal.vue'
+import YarnReplaceModal, { type ReplacedYarn } from './YarnReplaceModal.vue'
 
 const { t } = useI18n()
 const { state, dispatch } = useEditor()
@@ -36,9 +36,9 @@ const clashes = computed(() => patternClashCount(state.value.chart.palette))
 
 // The dialog keeps its last yarn while it closes, so its content does not vanish mid-animation.
 const replacing = ref(false)
-const replacement = ref<YarnReplacement | null>(null)
-function openReplacement(next: YarnReplacement) {
-  replacement.value = next
+const replaced = ref<ReplacedYarn | null>(null)
+function openReplacement(next: ReplacedYarn) {
+  replaced.value = next
   replacing.value = true
 }
 </script>
@@ -107,6 +107,6 @@ function openReplacement(next: YarnReplacement) {
         @click="dispatch({ type: 'add-yarn' })"
       />
     </div>
-    <YarnReplaceModal v-model:open="replacing" :replacement="replacement" />
+    <YarnReplaceModal v-model:open="replacing" :target="replaced" />
   </div>
 </template>
