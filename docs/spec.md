@@ -106,10 +106,11 @@
 ## Архитектура
 
 - TypeScript (strict), Vue 3 (Composition API), Vite.
+- Библиотека компонентов UI — Nuxt UI (в режиме Vue + Vite, без Nuxt).
 - Слои (ADR-0002):
   - **domain** — схема, сетка, палитра, нить, узоры, правки и патчи, алгоритмы инструментов (линия, заливка). Чистый TS.
   - **application** — сценарии (рисовать, залить, заменить нить, изменить размер, undo/redo, импорт/экспорт) и порты (хранилище, файлы, PDF, PNG).
-  - **infrastructure** — canvas-рендерер, IndexedDB, сериализация `.kchart`, генератор PDF (jsPDF или pdf-lib), PNG.
+  - **infrastructure** — canvas-рендерер, IndexedDB, сериализация `.kchart`, генератор PDF (jsPDF, ленивая загрузка), PNG.
   - **presentation** — Vue-компоненты; Pinia (если нужна) — тонкий мост между application и UI.
 - domain и application не импортируют Vue, DOM и canvas; границы слоёв проверяет линтер (`eslint-plugin-boundaries` или аналог).
 - Сетка — плоский типизированный массив (`Uint16Array`) индексов нитей; 0 — пустая клетка.
