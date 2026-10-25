@@ -26,25 +26,25 @@ function save() {
   dispatch({ type: 'mark-saved' })
 }
 
-/** What replaces the chart once the changes not in a file are saved or discarded. */
-let replace = () => {}
+/** What goes on to replace the chart once the changes not in a file are saved or discarded. */
+let afterSaveChanges = () => {}
 
-/** Asks what to do with the changes not in a file first, if there are any, then replaces the chart. */
-function replaceChart(then: () => void) {
+/** Asks what to do with the changes not in a file first, if there are any, then goes on with `then`. */
+function askSaveChanges(then: () => void) {
   if (!state.value.unsavedToFile) return then()
-  replace = then
+  afterSaveChanges = then
   saveChangesOpen.value = true
 }
 
 function onSaveChanges(choice: SaveChangesChoice) {
   if (choice === 'cancel') return
   if (choice === 'save') save()
-  replace()
+  afterSaveChanges()
 }
 
 const newChartOpen = ref(false)
-const newChart = () => replaceChart(() => (newChartOpen.value = true))
-const open = () => replaceChart(() => fileInput.value?.click())
+const newChart = () => askSaveChanges(() => (newChartOpen.value = true))
+const open = () => askSaveChanges(() => fileInput.value?.click())
 
 function errorMessage(error: KchartError) {
   if (error.code !== 'corrupt') return t(`file.error.${error.code}`)

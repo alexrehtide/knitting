@@ -22,7 +22,7 @@ const height = ref<number | null>(START_CHART_SIZE)
 const stitches = ref<number | null>(null)
 const rows = ref<number | null>(null)
 
-// Each opening starts from 40 × 40 and the gauge of the chart being replaced.
+// Each opening starts from the start size and the gauge of the chart being replaced.
 watch(open, (isOpen) => {
   if (!isOpen) return
   width.value = START_CHART_SIZE
@@ -31,13 +31,17 @@ watch(open, (isOpen) => {
   rows.value = state.value.chart.properties.gauge.rows
 })
 
+const gauge = computed(() => ({
+  stitches: stitches.value ?? Number.NaN,
+  rows: rows.value ?? Number.NaN,
+}))
+const gaugeInvalid = computed(() => propertyError({ gauge: gauge.value }) !== null)
+
 /** The chart the fields describe, or `null` while a field is empty or out of range. */
 const chart = computed(() => {
-  const gauge = { stitches: stitches.value ?? Number.NaN, rows: rows.value ?? Number.NaN }
-  if (width.value === null || height.value === null) return null
+  if (width.value === null || height.value === null || gaugeInvalid.value) return null
   if (!isValidChartDimension(width.value) || !isValidChartDimension(height.value)) return null
-  if (propertyError({ gauge })) return null
-  return { width: width.value, height: height.value, gauge }
+  return { width: width.value, height: height.value, gauge: gauge.value }
 })
 
 const finished = computed(() => {
@@ -75,6 +79,7 @@ const gaugeFormat = { maximumFractionDigits: 2, useGrouping: false }
         <UFormField
           :label="t('properties.gauge')"
           :hint="t('properties.gaugeUnit')"
+          :error="gaugeInvalid ? t('properties.gaugeInvalid') : undefined"
           :help="finished"
         >
           <div class="flex items-center gap-2">
