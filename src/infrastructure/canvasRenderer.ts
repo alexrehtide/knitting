@@ -35,7 +35,7 @@ export interface ChartCanvases {
 /**
  * Draws the chart in «colour» mode: a W×H bitmap, one pixel per cell, scaled with `drawImage`
  * without smoothing; empty cells are transparent in it and show the «нет петли» hatch beneath.
- * `patch` repaints the changed cells of the bitmap, `replaced` rebuilds it.
+ * A cell patch repaints the changed cells of the bitmap; a palette patch and `replaced` rebuild it.
  * The overlay and the rulers follow the viewport and the hovered cell; a hover redraws them alone.
  */
 export function createCanvasRenderer(
@@ -62,7 +62,9 @@ export function createCanvasRenderer(
       bitmap = createBitmap(session.state.chart)
       schedule({ chart: true, marks: true })
     } else if (event.type === 'patch') {
-      bitmap.paint(event.patch.cells)
+      // A palette patch may recolour any cell, so the bitmap is made afresh.
+      if (event.patch.kind === 'palette') bitmap = createBitmap(session.state.chart)
+      else bitmap.paint(event.patch.cells)
       schedule({ chart: true })
     }
   })

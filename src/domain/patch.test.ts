@@ -31,3 +31,18 @@ describe('cell patches', () => {
     expect(invertPatch(invertPatch(patch))).toEqual(patch)
   })
 })
+
+describe('palette patches', () => {
+  it('replace the palette, and put it back when inverted', () => {
+    const chart = createChart(3, 2, now)
+    const before = chart.palette
+    const after = before.slice(1)
+    const palettePatch: ChartPatch = { kind: 'palette', before, after }
+
+    applyPatch(chart, palettePatch)
+    expect(chart.palette).toBe(after)
+
+    applyPatch(chart, invertPatch(palettePatch))
+    expect(chart.palette).toBe(before)
+  })
+})

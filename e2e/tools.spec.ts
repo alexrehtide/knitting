@@ -1,26 +1,8 @@
-import { expect, test, type Page } from '@playwright/test'
-import { cellCenter } from './chart'
+import { expect, test } from '@playwright/test'
+import { cellCenter, probe } from './chart'
 
 /** Yarn 1 of the default palette, the current yarn at start. */
 const CURRENT_YARN = [255, 255, 255]
-
-/** The chart canvas pixel at a page point, clear of the cell's hatch line and grid lines. */
-async function probe(page: Page, point: { x: number; y: number; cell: number }) {
-  const box = await page.getByTestId('chart-canvas').boundingBox()
-  if (!box) throw new Error('No chart on the page')
-  const x = Math.round(point.x - box.x - point.cell / 4)
-  const y = Math.round(point.y - box.y - point.cell / 4)
-  return page
-    .getByTestId('chart-canvas')
-    .evaluate(
-      (el, [px, py]) =>
-        [...(el as HTMLCanvasElement).getContext('2d')!.getImageData(px!, py!, 1, 1).data].slice(
-          0,
-          3,
-        ),
-      [x, y],
-    )
-}
 
 test('a brush stroke paints the current yarn; Ctrl+Z empties the cell, Ctrl+Y paints it again', async ({
   page,

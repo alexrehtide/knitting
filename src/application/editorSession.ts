@@ -1,51 +1,77 @@
-import { createChart, initialYarnSelection, type Chart } from '../domain/chart'
+import { createChart, initialYarnSelection, repairYarnSelection, type Chart } from '../domain/chart'
 import type { Clock } from '../domain/clock'
 import { lineCells } from '../domain/line'
 import type { GridCell } from '../domain/numbering'
-import type { YarnId } from '../domain/palette'
+import {
+  addYarn,
+  parseYarnColor,
+  removeYarn,
+  updateYarn,
+  yarnRemovalBlock,
+  type Palette,
+  type YarnId,
+} from '../domain/palette'
 import { applyPatch, invertPatch, type CellChange, type ChartPatch } from '../domain/patch'
+import { countStitches, updateStitchCounts, type StitchCounts } from '../domain/stitchCount'
 import { createHistory } from './history'
 
 /** Size of the chart the editor starts with when there is nothing to restore. */
 export const START_CHART_SIZE = 40
 
-export type Tool = 'brush' | 'eraser'
+/** Colour of a yarn added by «Добавить нить»; the user sets the real one in the yarn editor. */
+export const NEW_YARN_COLOR = '#808080'
+
+export type Tool = 'brush' | 'eraser' | 'eyedropper'
 
 /** `primary` draws with the current yarn, `secondary` with the previous one. */
 export type PointerButton = 'primary' | 'secondary'
+
+/** An edit the session refused, as a typed code for the presentation's message. */
+export type EditRejection = 'palette-full'
 
 export interface EditorState {
   readonly chart: Chart
   readonly currentYarn: YarnId
   readonly previousYarn: YarnId
+  /** The tool picked in the tool column or by its key. */
   readonly tool: Tool
+  /** The tool a gesture starts with now: the eyedropper while it is held (`Alt`), otherwise `tool`. */
+  readonly activeTool: Tool
   /** A gesture started on the grid and has not ended yet. */
   readonly gestureActive: boolean
   readonly canUndo: boolean
   readonly canRedo: boolean
+  /** Stitches of each yarn, kept up to date in place as patches change cells. */
+  readonly stitchCounts: ReadonlyMap<YarnId, number>
 }
 
 /**
  * One stream for every subscriber (ADR-0006):
- * `patch` — a patch was applied to the chart (a gesture's cells, its rollback, undo, redo);
+ * `patch` — a patch was applied to the chart (a gesture's cells, its rollback, a palette edit, undo, redo);
  * `preview` — the gesture preview changed, the chart did not;
  * `replaced` — the whole chart was replaced (new chart, opened file);
- * `state` — something else in the state changed (tool, gesture, history), the chart did not.
+ * `state` — something else in the state changed (tool, yarn selection, gesture, history), the chart did not;
+ * `rejected` — an edit was refused, nothing changed.
  */
 export type EditorEvent =
   | { readonly type: 'patch'; readonly patch: ChartPatch }
   | { readonly type: 'preview' }
   | { readonly type: 'replaced' }
   | { readonly type: 'state' }
+  | { readonly type: 'rejected'; readonly code: EditRejection }
 
 /**
  * Pointer commands come in cells, which may lie off the grid (docs/spec.md, «Инструменты»).
  * `pointer-up` also ends a gesture on `pointercancel` and on losing window focus: the gesture is kept.
  * `cancel-gesture` (`Esc`) rolls it back; so does a second `pointer-down` during it (a second button).
+ * Yarn and palette commands are ignored during a gesture.
+ * `update-yarn` with a `merge` key joins the last edit if it was made with the same key, so a colour
+ * picker drag is one edit.
  */
 export type EditorCommand =
   | { readonly type: 'replace-chart'; readonly chart: Chart }
   | { readonly type: 'select-tool'; readonly tool: Tool }
+  | { readonly type: 'hold-eyedropper'; readonly held: boolean }
   | {
       readonly type: 'pointer-down'
       readonly cell: GridCell
@@ -55,6 +81,16 @@ export type EditorCommand =
   | { readonly type: 'pointer-move'; readonly cell: GridCell; readonly shift: boolean }
   | { readonly type: 'pointer-up' }
   | { readonly type: 'cancel-gesture' }
+  | { readonly type: 'select-yarn'; readonly yarn: YarnId }
+  | { readonly type: 'swap-yarns' }
+  | { readonly type: 'add-yarn' }
+  | {
+      readonly type: 'update-yarn'
+      readonly yarn: YarnId
+      readonly changes: { readonly color?: string; readonly name?: string }
+      readonly merge?: string
+    }
+  | { readonly type: 'remove-yarn'; readonly yarn: YarnId }
   | { readonly type: 'undo' }
   | { readonly type: 'redo' }
 
@@ -69,15 +105,39 @@ export interface EditorSession {
 
 /** A brush or eraser gesture («мазок»): it changes cells at once and remembers what they held before. */
 interface Stroke {
+  readonly kind: 'stroke'
   readonly yarn: YarnId
   last: GridCell
   /** Cell index → yarn before the stroke, for the cells it changed. */
   readonly before: Map<number, YarnId>
 }
 
+/** An eyedropper gesture: it takes the yarn under the pointer live, counted from the selection it started with. */
+interface Pick {
+  readonly kind: 'pick'
+  readonly button: PointerButton
+  readonly start: { readonly current: YarnId; readonly previous: YarnId }
+}
+
+// Only these reach a gesture; tool, yarn, palette and history commands are ignored during it.
+const DURING_GESTURE = new Set<EditorCommand['type']>([
+  'replace-chart',
+  'hold-eyedropper',
+  'pointer-down',
+  'pointer-move',
+  'pointer-up',
+  'cancel-gesture',
+])
+
 export function createEditorSession({ clock }: { clock: Clock }): EditorSession {
   let history = createHistory()
-  let stroke: Stroke | null = null
+  let gesture: Stroke | Pick | null = null
+  let eyedropperHeld = false
+  /** The tool the eyedropper hands back after a click. */
+  let toolBeforeEyedropper: Tool = 'brush'
+  /** The last edit, while later `update-yarn` commands with its key may still join it. */
+  let mergeable: { readonly key: string; readonly before: Palette } | null = null
+  let stitchCounts: StitchCounts = new Map()
   let state = withChart(createChart(START_CHART_SIZE, START_CHART_SIZE, clock.now()), 'brush')
   const listeners = new Set<EditorListener>()
 
@@ -86,25 +146,75 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
   }
 
   function update(changes: Partial<EditorState>) {
+    const tool = changes.tool ?? state.tool
     state = {
       ...state,
-      gestureActive: stroke !== null,
+      activeTool: eyedropperHeld ? 'eyedropper' : tool,
+      gestureActive: gesture !== null,
       canUndo: history.canUndo,
       canRedo: history.canRedo,
       ...changes,
     }
   }
 
-  function apply(cells: readonly CellChange[]) {
-    if (cells.length === 0) return
-    const patch: ChartPatch = { kind: 'cells', cells }
-    applyPatch(state.chart, patch)
-    update({})
+  function withChart(chart: Chart, tool: Tool): EditorState {
+    const { current, previous } = initialYarnSelection(chart.palette)
+    stitchCounts = countStitches(chart.cells)
+    return {
+      chart,
+      currentYarn: current,
+      previousYarn: previous,
+      tool,
+      activeTool: eyedropperHeld ? 'eyedropper' : tool,
+      gestureActive: false,
+      canUndo: false,
+      canRedo: false,
+      stitchCounts,
+    }
+  }
+
+  function apply(patch: ChartPatch) {
+    if (patch.kind === 'cells' && patch.cells.length === 0) return
+    const { chart } = state
+    applyPatch(chart, patch)
+    if (patch.kind === 'cells') updateStitchCounts(stitchCounts, patch.cells)
+    const selection = repairYarnSelection(chart.palette, {
+      current: state.currentYarn,
+      previous: state.previousYarn,
+    })
+    update({ currentYarn: selection.current, previousYarn: selection.previous })
     emit({ type: 'patch', patch })
   }
 
-  function paint(from: GridCell, to: GridCell) {
-    if (!stroke) return
+  function record(patch: ChartPatch) {
+    history.record(patch)
+    mergeable = null
+  }
+
+  /** Applies a palette edit and records it, joining the last edit when `merge` names it. */
+  function editPalette(after: Palette, merge?: string) {
+    const before = state.chart.palette
+    if (merge !== undefined && mergeable?.key === merge) {
+      history.amend({ kind: 'palette', before: mergeable.before, after })
+    } else {
+      record({ kind: 'palette', before, after })
+      if (merge !== undefined) mergeable = { key: merge, before }
+    }
+    apply({ kind: 'palette', before, after })
+  }
+
+  function select(current: YarnId, previous: YarnId) {
+    if (current === state.currentYarn && previous === state.previousYarn) return
+    update({ currentYarn: current, previousYarn: previous })
+    emit({ type: 'state' })
+  }
+
+  function onGrid(cell: GridCell) {
+    const { chart } = state
+    return cell.row >= 0 && cell.row < chart.height && cell.column >= 0 && cell.column < chart.width
+  }
+
+  function paint(stroke: Stroke, from: GridCell, to: GridCell) {
     const { chart } = state
     const changes: CellChange[] = []
     for (const { row, column } of lineCells(from, to, chart)) {
@@ -114,35 +224,154 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
       if (!stroke.before.has(index)) stroke.before.set(index, before)
       changes.push({ index, before, after: stroke.yarn })
     }
-    apply(changes)
+    apply({ kind: 'cells', cells: changes })
+  }
+
+  /** Takes the yarn of the cell; an empty cell or one off the grid leaves the selection as it is. */
+  function pick({ button, start }: Pick, cell: GridCell) {
+    const { chart } = state
+    const yarn = onGrid(cell) ? (chart.cells[cell.row * chart.width + cell.column] ?? 0) : 0
+    if (yarn === 0) return
+    if (button === 'secondary') select(start.current, yarn)
+    else if (yarn === start.current) select(start.current, start.previous)
+    else select(yarn, start.current)
   }
 
   function startGesture(cell: GridCell, button: PointerButton) {
-    const { chart } = state
-    if (cell.row < 0 || cell.row >= chart.height || cell.column < 0 || cell.column >= chart.width)
+    if (!onGrid(cell)) return
+    const tool = state.activeTool
+    if (tool === 'eyedropper') {
+      const started: Pick = {
+        kind: 'pick',
+        button,
+        start: { current: state.currentYarn, previous: state.previousYarn },
+      }
+      gesture = started
+      update({})
+      emit({ type: 'state' })
+      pick(started, cell)
       return
+    }
     const yarn =
-      state.tool === 'eraser' ? 0 : button === 'primary' ? state.currentYarn : state.previousYarn
-    stroke = { yarn, last: cell, before: new Map() }
+      tool === 'eraser' ? 0 : button === 'primary' ? state.currentYarn : state.previousYarn
+    const stroke: Stroke = { kind: 'stroke', yarn, last: cell, before: new Map() }
+    gesture = stroke
     update({})
     emit({ type: 'state' })
-    paint(cell, cell)
+    paint(stroke, cell, cell)
   }
 
-  /** Ends the gesture: `keep` records its patch as one edit, otherwise the patch is rolled back. */
+  /** Ends the gesture: `keep` records a stroke's patch as one edit, otherwise the gesture is rolled back. */
   function endGesture(keep: boolean) {
-    if (!stroke) return
-    const { yarn, before } = stroke
-    stroke = null
+    if (!gesture) return
+    const ended = gesture
+    gesture = null
+    if (ended.kind === 'pick') {
+      if (!keep) select(ended.start.current, ended.start.previous)
+      // After a click the eyedropper picked as a tool hands back the tool it was picked from.
+      const tool = keep && state.tool === 'eyedropper' ? toolBeforeEyedropper : state.tool
+      update({ tool })
+      emit({ type: 'state' })
+      return
+    }
+    const { yarn, before } = ended
     const patch: ChartPatch = {
       kind: 'cells',
       cells: [...before].map(([index, was]) => ({ index, before: was, after: yarn })),
     }
     // A gesture that changed nothing makes no edit.
-    if (!keep) apply(invertPatch(patch).cells)
-    else if (patch.cells.length > 0) history.record(patch)
+    if (!keep) apply(invertPatch(patch))
+    else if (patch.cells.length > 0) record(patch)
     update({})
     emit({ type: 'state' })
+  }
+
+  function run(command: EditorCommand) {
+    switch (command.type) {
+      case 'replace-chart':
+        gesture = null
+        mergeable = null
+        history = createHistory()
+        state = withChart(command.chart, state.tool)
+        emit({ type: 'replaced' })
+        break
+      case 'select-tool':
+        if (command.tool === state.tool) break
+        if (command.tool === 'eyedropper') toolBeforeEyedropper = state.tool
+        update({ tool: command.tool })
+        emit({ type: 'state' })
+        break
+      case 'hold-eyedropper':
+        // Holding is ignored during a gesture; releasing is not, the gesture keeps its own tool.
+        if (command.held === eyedropperHeld || (command.held && gesture)) break
+        eyedropperHeld = command.held
+        update({})
+        emit({ type: 'state' })
+        break
+      case 'pointer-down':
+        // A second button during the gesture cancels it.
+        if (gesture) endGesture(false)
+        else startGesture(command.cell, command.button)
+        break
+      case 'pointer-move':
+        if (gesture?.kind === 'pick') pick(gesture, command.cell)
+        else if (gesture) {
+          paint(gesture, gesture.last, command.cell)
+          gesture.last = command.cell
+        }
+        break
+      case 'pointer-up':
+        endGesture(true)
+        break
+      case 'cancel-gesture':
+        endGesture(false)
+        break
+      case 'select-yarn': {
+        const { yarn } = command
+        if (yarn === state.currentYarn || !state.chart.palette.some((y) => y.id === yarn)) break
+        select(yarn, state.currentYarn)
+        break
+      }
+      case 'swap-yarns':
+        select(state.previousYarn, state.currentYarn)
+        break
+      case 'add-yarn': {
+        const result = addYarn(state.chart.palette, { color: NEW_YARN_COLOR })
+        if (result.ok) editPalette(result.palette)
+        else emit({ type: 'rejected', code: result.code })
+        break
+      }
+      case 'update-yarn': {
+        const { yarn, changes, merge } = command
+        const old = state.chart.palette.find((y) => y.id === yarn)
+        const color = changes.color === undefined ? old?.color : parseYarnColor(changes.color)
+        const name = changes.name ?? old?.name
+        if (!old || !color || name === undefined) break
+        if (color === old.color && name === old.name) break
+        editPalette(updateYarn(state.chart.palette, yarn, { color, name }), merge)
+        break
+      }
+      case 'remove-yarn': {
+        const { palette } = state.chart
+        const { yarn } = command
+        if (!palette.some((y) => y.id === yarn)) break
+        if (yarnRemovalBlock(palette, stitchCounts.get(yarn) ?? 0) !== null) break
+        editPalette(removeYarn(palette, yarn))
+        break
+      }
+      case 'undo': {
+        const patch = history.undo()
+        mergeable = null
+        if (patch) apply(invertPatch(patch))
+        break
+      }
+      case 'redo': {
+        const patch = history.redo()
+        mergeable = null
+        if (patch) apply(patch)
+        break
+      }
+    }
   }
 
   return {
@@ -150,62 +379,12 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
       return state
     },
     dispatch(command) {
-      switch (command.type) {
-        case 'replace-chart':
-          stroke = null
-          history = createHistory()
-          state = withChart(command.chart, state.tool)
-          emit({ type: 'replaced' })
-          break
-        case 'select-tool':
-          if (stroke || command.tool === state.tool) break
-          update({ tool: command.tool })
-          emit({ type: 'state' })
-          break
-        case 'pointer-down':
-          // A second button during the gesture cancels it.
-          if (stroke) endGesture(false)
-          else startGesture(command.cell, command.button)
-          break
-        case 'pointer-move':
-          if (!stroke) break
-          paint(stroke.last, command.cell)
-          stroke.last = command.cell
-          break
-        case 'pointer-up':
-          endGesture(true)
-          break
-        case 'cancel-gesture':
-          endGesture(false)
-          break
-        case 'undo': {
-          const patch = stroke ? undefined : history.undo()
-          if (patch) apply(invertPatch(patch).cells)
-          break
-        }
-        case 'redo': {
-          const patch = stroke ? undefined : history.redo()
-          if (patch) apply(patch.cells)
-          break
-        }
-      }
+      if (gesture && !DURING_GESTURE.has(command.type)) return
+      run(command)
     },
     subscribe(listener) {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-  }
-}
-
-function withChart(chart: Chart, tool: Tool): EditorState {
-  const { current, previous } = initialYarnSelection(chart.palette)
-  return {
-    chart,
-    currentYarn: current,
-    previousYarn: previous,
-    tool,
-    gestureActive: false,
-    canUndo: false,
-    canRedo: false,
   }
 }

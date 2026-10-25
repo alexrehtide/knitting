@@ -21,6 +21,11 @@ export function createHistory() {
       if (done.length > HISTORY_DEPTH) done.shift()
       undone = []
     },
+    /** Replaces the last edit with one that also holds a change made on top of it. */
+    amend(patch: ChartPatch) {
+      if (done.length === 0) throw new Error('No edit to amend')
+      done[done.length - 1] = patch
+    },
     /** The edit to undo, moved to the redo stack. */
     undo(): ChartPatch | undefined {
       const patch = done.pop()

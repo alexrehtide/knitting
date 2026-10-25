@@ -24,7 +24,8 @@ export interface Chart {
   readonly height: number
   /** Row-major, top row first; each cell holds a yarn id or 0 for an empty cell (ADR-0004). */
   readonly cells: Uint16Array
-  readonly palette: Palette
+  /** Replaced by palette patches, as cells are changed by cell patches. */
+  palette: Palette
   readonly properties: ChartProperties
 }
 
@@ -43,6 +44,29 @@ export function initialYarnSelection(palette: Palette): { current: YarnId; previ
   const [first, second = first] = palette
   if (first === undefined || second === undefined) throw new RangeError('A palette is never empty')
   return { current: first.id, previous: second.id }
+}
+
+/**
+ * The selection after the palette changed: a yarn no longer in the palette gives way to the other selected
+ * yarn, then to another yarn of the palette (the same one for both only when the palette has one yarn).
+ */
+export function repairYarnSelection(
+  palette: Palette,
+  selection: { current: YarnId; previous: YarnId },
+): { current: YarnId; previous: YarnId } {
+  const has = (id: YarnId) => palette.some((y) => y.id === id)
+  const { current, previous } = selection
+  if (has(current) && has(previous)) return selection
+  const first = palette[0]
+  if (first === undefined) throw new RangeError('A palette is never empty')
+  const repaired = has(current) ? current : has(previous) ? previous : first.id
+  return {
+    current: repaired,
+    previous:
+      has(previous) && previous !== repaired
+        ? previous
+        : (palette.find((y) => y.id !== repaired)?.id ?? repaired),
+  }
 }
 
 /** An empty chart with the default palette and default properties. */

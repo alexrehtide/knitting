@@ -12,6 +12,34 @@ export const ru = {
   tool: {
     brush: 'Кисть',
     eraser: 'Ластик',
+    eyedropper: 'Пипетка',
+  },
+  yarn: {
+    byNumber: 'Нить по номеру',
+    swap: 'Поменять местами текущую и предыдущую нить',
+    pair: 'Текущая нить {current}, предыдущая — {previous}',
+  },
+  palette: {
+    list: 'Нити палитры',
+    select: 'Нить {number}: {name}',
+    unnamed: 'без имени',
+    stitches: '0 петель | {n} петля | {n} петли | {n} петель',
+    edit: 'Изменить нить {number}',
+    add: 'Добавить нить',
+    rejected: {
+      'palette-full': 'Палитра полна: больше нитей добавить нельзя',
+    },
+  },
+  yarnEditor: {
+    title: 'Нить {number}',
+    hex: 'Цвет (hex)',
+    hexInvalid: 'Нужен цвет вида #rrggbb',
+    name: 'Имя или артикул',
+    remove: 'Удалить',
+    blocked: {
+      'last-yarn': 'Последнюю нить удалить нельзя',
+      'yarn-in-use': 'Нить есть в схеме: удалить можно только неиспользуемую',
+    },
   },
   menu: {
     edit: {
@@ -47,6 +75,7 @@ export const ru = {
     size: 'Размер: {width} × {height}',
     zoom: 'Масштаб: {percent}%',
     tool: 'Инструмент: {tool}',
+    yarn: 'Нить: {number}',
   },
 }
 

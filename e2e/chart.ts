@@ -29,6 +29,24 @@ export async function chartBox(page: Page) {
   })
 }
 
+/** The chart canvas pixel at a page point, clear of the cell's hatch line and grid lines. */
+export async function probe(page: Page, point: { x: number; y: number; cell: number }) {
+  const box = await page.getByTestId('chart-canvas').boundingBox()
+  if (!box) throw new Error('No chart on the page')
+  const x = Math.round(point.x - box.x - point.cell / 4)
+  const y = Math.round(point.y - box.y - point.cell / 4)
+  return page
+    .getByTestId('chart-canvas')
+    .evaluate(
+      (el, [px, py]) =>
+        [...(el as HTMLCanvasElement).getContext('2d')!.getImageData(px!, py!, 1, 1).data].slice(
+          0,
+          3,
+        ),
+      [x, y],
+    )
+}
+
 /** Margin around the chart after «Вписать», as in src/presentation/canvas/viewport.ts. */
 const FIT_MARGIN = 16
 

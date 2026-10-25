@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest'
-import { addYarn, type Palette } from './palette'
+import {
+  addYarn,
+  parseYarnColor,
+  removeYarn,
+  updateYarn,
+  yarnRemovalBlock,
+  type Palette,
+} from './palette'
 
 const white = { color: '#ffffff' }
 
@@ -69,5 +76,43 @@ describe('fill pattern of a new yarn', () => {
     )
     if (!crossTwice.ok) throw new Error('rejected')
     expect(crossTwice.yarn.pattern).toBe('circle-filled')
+  })
+})
+
+describe('removeYarn', () => {
+  it('drops the yarn and keeps the order of the rest', () => {
+    expect(removeYarn([yarn(1), yarn(2), yarn(3)], 2).map((y) => y.id)).toEqual([1, 3])
+  })
+})
+
+describe('yarnRemovalBlock', () => {
+  it('blocks the last yarn and a yarn with stitches, and lets an unused one go', () => {
+    expect(yarnRemovalBlock([yarn(1)], 0)).toBe('last-yarn')
+    expect(yarnRemovalBlock([yarn(1), yarn(2)], 3)).toBe('yarn-in-use')
+    expect(yarnRemovalBlock([yarn(1), yarn(2)], 0)).toBeNull()
+  })
+})
+
+describe('updateYarn', () => {
+  it('changes the colour and the name of one yarn, keeping its place', () => {
+    const palette = [yarn(1), yarn(2)]
+
+    const updated = updateYarn(palette, 2, { color: '#123456', name: 'Alize 55' })
+
+    expect(updated).toEqual([yarn(1), { ...yarn(2), color: '#123456', name: 'Alize 55' }])
+    expect(palette[1]?.color).toBe('#808080')
+  })
+})
+
+describe('parseYarnColor', () => {
+  it('reads #rrggbb and #rgb in any case, with or without #, as lower-case #rrggbb', () => {
+    expect(parseYarnColor('#A1b2C3')).toBe('#a1b2c3')
+    expect(parseYarnColor(' a1b2c3 ')).toBe('#a1b2c3')
+    expect(parseYarnColor('#fA0')).toBe('#ffaa00')
+  })
+
+  it('rejects anything else', () => {
+    for (const text of ['', '#12345', '#1234567', 'red', '#ggg000'])
+      expect(parseYarnColor(text)).toBeNull()
   })
 })

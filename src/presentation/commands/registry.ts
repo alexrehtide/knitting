@@ -48,6 +48,11 @@ function isTextField(target: EventTarget | null) {
   return target instanceof Element && target.closest(TEXT_FIELD) !== null
 }
 
+/** The key belongs to a text field or an open overlay, not to the editor. */
+export function keyboardTaken(event: KeyboardEvent) {
+  return isTextField(event.target) || document.querySelector(OVERLAY) !== null
+}
+
 /** Keys of a binding as `UKbd` values; `meta` shows as Ctrl, or ⌘ on macOS. */
 export function bindingKbds(binding: KeyBinding): string[] {
   if (binding.kbds) return [...binding.kbds]
@@ -97,8 +102,7 @@ export function createCommandRegistry() {
 
   function handleKeyDown(event: KeyboardEvent) {
     // An overlay keeps its keys, such as Tab between its controls.
-    if (event.defaultPrevented || isTextField(event.target) || document.querySelector(OVERLAY))
-      return
+    if (event.defaultPrevented || keyboardTaken(event)) return
     const command = bound(event)
     if (!command) return
     // The key is the editor's even when it does nothing now: no page zoom on Ctrl+=, no focus move on Tab

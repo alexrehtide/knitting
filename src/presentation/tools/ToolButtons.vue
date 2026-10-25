@@ -14,6 +14,7 @@ const registry = useCommandRegistry()
 const tools: readonly { tool: Tool; icon: string; code: string }[] = [
   { tool: 'brush', icon: 'i-lucide-brush', code: 'KeyB' },
   { tool: 'eraser', icon: 'i-lucide-eraser', code: 'KeyE' },
+  { tool: 'eyedropper', icon: 'i-lucide-pipette', code: 'KeyI' },
 ]
 
 const select = (tool: Tool) => dispatch({ type: 'select-tool', tool })
@@ -45,9 +46,9 @@ function kbds(tool: Tool) {
     <UButton
       :icon="icon"
       :aria-label="t(`tool.${tool}`)"
-      :aria-pressed="state.tool === tool"
-      :color="state.tool === tool ? 'primary' : 'neutral'"
-      :variant="state.tool === tool ? 'soft' : 'ghost'"
+      :aria-pressed="state.activeTool === tool"
+      :color="state.activeTool === tool ? 'primary' : 'neutral'"
+      :variant="state.activeTool === tool ? 'soft' : 'ghost'"
       square
       @click="select(tool)"
     />

@@ -3,6 +3,7 @@ import { computed, onBeforeUnmount, onMounted, ref, useTemplateRef, watch } from
 import { useI18n } from 'vue-i18n'
 import type { ChartRenderer } from '../../application/chartRenderer'
 import type { EditorCommand } from '../../application/editorSession'
+import { keyboardTaken } from '../commands/registry'
 import { chartRendererKey, injectStrict } from '../editor/injection'
 import { useEditor } from '../editor/useEditor'
 import type { ChartView } from './useChartView'
@@ -29,8 +30,18 @@ let gesture: { pointerId: number; button: number; x: number; y: number; shift: b
 const cursor = computed(() => {
   if (pan.value) return 'grabbing'
   if (spaceHeld.value) return 'grab'
-  return state.value.gestureActive || view.hoverCell.value ? 'crosshair' : 'default'
+  if (!state.value.gestureActive && !view.hoverCell.value) return 'default'
+  return state.value.activeTool === 'eyedropper' ? EYEDROPPER_CURSOR : 'crosshair'
 })
+
+// The Lucide pipette, outlined in white so it shows on dark yarns; the hotspot is its tip.
+const PIPETTE_PATHS =
+  '<path d="m12 9l-8.414 8.414A2 2 0 0 0 3 18.828v1.344a2 2 0 0 1-.586 1.414A2 2 0 0 1 3.828 21h1.344a2 2 0 0 0 1.414-.586L15 12"/>' +
+  '<path d="m18 9l.4.4a1 1 0 1 1-3 3l-3.8-3.8a1 1 0 1 1 3-3l.4.4l3.4-3.4a1 1 0 1 1 3 3zM2 22l.414-.414"/>'
+const PIPETTE_SVG =
+  '<svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round">' +
+  `<g stroke="white" stroke-width="4">${PIPETTE_PATHS}</g><g stroke="black" stroke-width="2">${PIPETTE_PATHS}</g></svg>`
+const EYEDROPPER_CURSOR = `url("data:image/svg+xml,${encodeURIComponent(PIPETTE_SVG)}") 2 22, crosshair`
 
 // `MouseEvent.button` → its bit in `MouseEvent.buttons`.
 const BUTTON_BITS = [1, 4, 2, 8, 16]
@@ -166,6 +177,12 @@ function onKeyDown(event: KeyboardEvent) {
     endGesture({ type: 'cancel-gesture' })
     return
   }
+  // Held Alt is the eyedropper, unless the key belongs to a field or an open popover; the session
+  // ignores it during a gesture.
+  if (event.key === 'Alt') {
+    if (!keyboardTaken(event)) dispatch({ type: 'hold-eyedropper', held: true })
+    return
+  }
   // Space belongs to a focused control (button, tab, field); it pans only when nothing is focused.
   if (event.code !== 'Space' || event.target !== document.body || gesture) return
   event.preventDefault()
@@ -174,10 +191,16 @@ function onKeyDown(event: KeyboardEvent) {
 
 function onKeyUp(event: KeyboardEvent) {
   if (event.code === 'Space') spaceHeld.value = false
+  if (event.key === 'Alt') {
+    // Firefox shows its menu bar on a lone Alt release.
+    event.preventDefault()
+    dispatch({ type: 'hold-eyedropper', held: false })
+  }
 }
 
 function onBlur() {
   spaceHeld.value = false
+  dispatch({ type: 'hold-eyedropper', held: false })
   // Losing focus keeps the gesture, as releasing the button does.
   endGesture({ type: 'pointer-up' })
 }

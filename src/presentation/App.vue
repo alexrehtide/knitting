@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { ru as uiRu } from '@nuxt/ui/locale'
 import UApp from '@nuxt/ui/components/App.vue'
@@ -10,12 +11,21 @@ import { useEditor } from './editor/useEditor'
 import EditMenu from './menu/EditMenu.vue'
 import HelpMenu from './menu/HelpMenu.vue'
 import ViewMenu from './menu/ViewMenu.vue'
+import PalettePanel from './palette/PalettePanel.vue'
+import YarnSwatch from './palette/YarnSwatch.vue'
 import ToolButtons from './tools/ToolButtons.vue'
+import YarnPair from './tools/YarnPair.vue'
 
 const { t } = useI18n()
 const { state } = useEditor()
 const view = useChartView(state)
 provideCommands()
+
+const currentYarn = computed(() => {
+  const { palette } = state.value.chart
+  const index = palette.findIndex((y) => y.id === state.value.currentYarn)
+  return { number: index + 1, color: palette[index]?.color ?? 'transparent' }
+})
 
 const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette' as const }]
 </script>
@@ -42,6 +52,9 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
           class="flex w-12 shrink-0 flex-col items-center gap-2 border-r border-default py-2"
         >
           <ToolButtons />
+          <div class="mt-auto">
+            <YarnPair />
+          </div>
         </aside>
 
         <main class="relative min-w-0 flex-1 overflow-hidden bg-muted">
@@ -52,8 +65,16 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
           :aria-label="t('layout.sidePanel')"
           class="flex w-80 shrink-0 flex-col border-l border-default"
         >
-          <UTabs :items="panelTabs" default-value="palette" variant="link" class="w-full">
-            <template #palette />
+          <UTabs
+            :items="panelTabs"
+            default-value="palette"
+            variant="link"
+            class="min-h-0 w-full flex-1"
+            :ui="{ content: 'flex min-h-0 flex-1 flex-col' }"
+          >
+            <template #palette>
+              <PalettePanel />
+            </template>
           </UTabs>
         </aside>
       </div>
@@ -75,7 +96,11 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
           t('status.size', { width: state.chart.width, height: state.chart.height })
         }}</span>
         <span>{{ t('status.zoom', { percent: view.zoomPercent.value }) }}</span>
-        <span>{{ t('status.tool', { tool: t(`tool.${state.tool}`) }) }}</span>
+        <span>{{ t('status.tool', { tool: t(`tool.${state.activeTool}`) }) }}</span>
+        <span class="flex items-center gap-1.5">
+          {{ t('status.yarn', { number: currentYarn.number }) }}
+          <YarnSwatch :color="currentYarn.color" class="size-3" />
+        </span>
       </footer>
     </div>
   </UApp>

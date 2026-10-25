@@ -38,6 +38,41 @@ export function addYarn(palette: Palette, yarn: { color: string; name?: string }
   return { ok: true, palette: [...palette, added], yarn: added }
 }
 
+/** Drops the yarn; the rest keep their order. */
+export function removeYarn(palette: Palette, id: YarnId): Palette {
+  return palette.filter((y) => y.id !== id)
+}
+
+/**
+ * Why a yarn with this many stitches cannot be removed, or `null` if it can: the palette is never empty,
+ * and removing a used yarn needs a yarn replacement, which stage 1 does not have.
+ */
+export function yarnRemovalBlock(
+  palette: Palette,
+  stitches: number,
+): 'last-yarn' | 'yarn-in-use' | null {
+  if (palette.length <= 1) return 'last-yarn'
+  if (stitches > 0) return 'yarn-in-use'
+  return null
+}
+
+/** The palette with the yarn's colour or name changed, the yarn in the same place. */
+export function updateYarn(
+  palette: Palette,
+  id: YarnId,
+  changes: { readonly color?: string; readonly name?: string },
+): Palette {
+  return palette.map((y) => (y.id === id ? { ...y, ...changes } : y))
+}
+
+/** `#rrggbb` or `#rgb` in any case, with or without `#`, as a yarn colour; `null` if it is not one. */
+export function parseYarnColor(text: string): string | null {
+  const match = /^#?([0-9a-f]{3}|[0-9a-f]{6})$/i.exec(text.trim())
+  if (!match?.[1]) return null
+  const hex = match[1].toLowerCase()
+  return `#${hex.length === 3 ? [...hex].map((c) => c + c).join('') : hex}`
+}
+
 /** The first unused pattern in assignment order; if all are taken, the first of the least used. */
 function autoPattern(palette: Palette): FillPattern {
   const uses = new Map<FillPattern, number>(FILL_PATTERNS.map((p) => [p, 0]))

@@ -368,3 +368,401 @@ describe('editor session', () => {
     expect(dropped).toEqual([])
   })
 })
+
+function addYarn(session: EditorSession) {
+  session.dispatch({ type: 'add-yarn' })
+  const added = session.state.chart.palette.at(-1)
+  if (!added) throw new Error('No yarn')
+  return added.id
+}
+
+function paletteIds(session: EditorSession) {
+  return session.state.chart.palette.map((y) => y.id)
+}
+
+describe('yarn selection', () => {
+  it('makes the chosen yarn current and the current one previous, with no edit', () => {
+    const session = smallSession()
+    const third = addYarn(session)
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({ type: 'select-yarn', yarn: third })
+
+    expect(session.state.currentYarn).toBe(third)
+    expect(session.state.previousYarn).toBe(1)
+    expect(events).toEqual([{ type: 'state' }])
+    session.dispatch({ type: 'undo' })
+    expect(paletteIds(session)).toEqual([1, 2])
+  })
+
+  it('does nothing when the chosen yarn is already current', () => {
+    const session = smallSession()
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({ type: 'select-yarn', yarn: 1 })
+
+    expect(session.state.previousYarn).toBe(2)
+    expect(events).toEqual([])
+  })
+
+  it('swaps the current and the previous yarn', () => {
+    const session = smallSession()
+
+    session.dispatch({ type: 'swap-yarns' })
+
+    expect(session.state.currentYarn).toBe(2)
+    expect(session.state.previousYarn).toBe(1)
+  })
+
+  it('ignores yarn changes during a gesture', () => {
+    const session = smallSession()
+    session.dispatch({
+      type: 'pointer-down',
+      cell: { row: 0, column: 0 },
+      button: 'primary',
+      shift: false,
+    })
+
+    session.dispatch({ type: 'swap-yarns' })
+    session.dispatch({ type: 'select-yarn', yarn: 2 })
+    session.dispatch({ type: 'pointer-move', cell: { row: 0, column: 1 }, shift: false })
+    session.dispatch({ type: 'pointer-up' })
+
+    expect(session.state.currentYarn).toBe(1)
+    expect(cellAt(session, 0, 1)).toBe(1)
+  })
+})
+
+describe('palette edits', () => {
+  it('adds a yarn at the end as one edit, undone and redone', () => {
+    const session = smallSession()
+
+    const added = addYarn(session)
+
+    expect(paletteIds(session)).toEqual([1, 2, added])
+    session.dispatch({ type: 'undo' })
+    expect(paletteIds(session)).toEqual([1, 2])
+    session.dispatch({ type: 'redo' })
+    expect(paletteIds(session)).toEqual([1, 2, added])
+  })
+
+  it('reports «palette full» instead of adding the 65 536th yarn', () => {
+    const session = smallSession()
+    const full = Array.from({ length: 65_535 }, (_, i) => ({
+      id: i + 1,
+      color: '#808080',
+      pattern: null,
+      name: '',
+    }))
+    session.dispatch({
+      type: 'replace-chart',
+      chart: { ...createChart(10, 8, now), palette: full },
+    })
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({ type: 'add-yarn' })
+
+    expect(session.state.chart.palette).toHaveLength(65_535)
+    expect(events).toEqual([{ type: 'rejected', code: 'palette-full' }])
+    expect(session.state.canUndo).toBe(false)
+  })
+
+  it('changes a yarn colour and name as edits and sends them as palette patches', () => {
+    const session = smallSession()
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { color: '#ff0000' } })
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { name: 'Alize 55' } })
+
+    expect(session.state.chart.palette[1]).toMatchObject({ color: '#ff0000', name: 'Alize 55' })
+    expect(events.map((e) => e.type === 'patch' && e.patch.kind)).toEqual(['palette', 'palette'])
+    session.dispatch({ type: 'undo' })
+    expect(session.state.chart.palette[1]).toMatchObject({ color: '#ff0000', name: '' })
+    session.dispatch({ type: 'undo' })
+    expect(session.state.chart.palette[1]).toMatchObject({ color: '#000000' })
+  })
+
+  it('makes no edit when the yarn already has the value', () => {
+    const session = smallSession()
+
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { color: '#000000', name: '' } })
+
+    expect(session.state.canUndo).toBe(false)
+  })
+
+  it('merges changes with the same merge key into one edit, as a colour picker drag', () => {
+    const session = smallSession()
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { name: 'first' } })
+
+    for (const color of ['#110000', '#220000', '#330000'])
+      session.dispatch({ type: 'update-yarn', yarn: 2, changes: { color }, merge: 'popover-1' })
+    session.dispatch({
+      type: 'update-yarn',
+      yarn: 2,
+      changes: { color: '#440000' },
+      merge: 'popover-2',
+    })
+
+    session.dispatch({ type: 'undo' })
+    expect(session.state.chart.palette[1]?.color).toBe('#330000')
+    session.dispatch({ type: 'undo' })
+    expect(session.state.chart.palette[1]).toMatchObject({ color: '#000000', name: 'first' })
+  })
+
+  it('does not merge into an edit that was undone', () => {
+    const session = smallSession()
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { color: '#110000' }, merge: 'a' })
+    session.dispatch({ type: 'undo' })
+
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { color: '#220000' }, merge: 'a' })
+    session.dispatch({ type: 'undo' })
+
+    expect(session.state.chart.palette[1]?.color).toBe('#000000')
+    expect(session.state.canUndo).toBe(false)
+  })
+
+  it('removes an unused yarn as an edit; undo puts it back in its place', () => {
+    const session = smallSession()
+    addYarn(session)
+
+    session.dispatch({ type: 'remove-yarn', yarn: 2 })
+    expect(paletteIds(session)).toEqual([1, 3])
+
+    session.dispatch({ type: 'undo' })
+    expect(paletteIds(session)).toEqual([1, 2, 3])
+  })
+
+  it('refuses to remove a used yarn', () => {
+    const session = smallSession()
+    stroke(session, [{ row: 0, column: 0 }], 'secondary')
+
+    session.dispatch({ type: 'remove-yarn', yarn: 2 })
+
+    expect(paletteIds(session)).toEqual([1, 2])
+    session.dispatch({ type: 'undo' })
+    expect(session.state.canUndo).toBe(false)
+  })
+
+  it('refuses to remove the last yarn', () => {
+    const session = smallSession()
+    session.dispatch({ type: 'remove-yarn', yarn: 2 })
+
+    session.dispatch({ type: 'remove-yarn', yarn: 1 })
+
+    expect(paletteIds(session)).toEqual([1])
+  })
+
+  it('moves the selection off a removed yarn', () => {
+    const session = smallSession()
+    const third = addYarn(session)
+    session.dispatch({ type: 'select-yarn', yarn: third })
+
+    session.dispatch({ type: 'remove-yarn', yarn: third })
+    expect(session.state.currentYarn).toBe(1)
+    expect(session.state.previousYarn).toBe(2)
+
+    session.dispatch({ type: 'remove-yarn', yarn: 2 })
+    expect(session.state.currentYarn).toBe(1)
+    expect(session.state.previousYarn).toBe(1)
+  })
+
+  it('moves the selection off a yarn whose adding is undone', () => {
+    const session = smallSession()
+    const third = addYarn(session)
+    session.dispatch({ type: 'select-yarn', yarn: third })
+
+    session.dispatch({ type: 'undo' })
+
+    expect(session.state.currentYarn).toBe(1)
+    expect(session.state.previousYarn).toBe(2)
+  })
+})
+
+describe('stitch counts', () => {
+  it('follow a stroke, its undo and its redo', () => {
+    const session = smallSession()
+    stroke(session, [{ row: 7, column: 0 }], 'secondary')
+
+    stroke(session, [
+      { row: 0, column: 0 },
+      { row: 0, column: 3 },
+    ])
+    expect(session.state.stitchCounts.get(1)).toBe(4)
+    expect(session.state.stitchCounts.get(2)).toBe(1)
+
+    session.dispatch({ type: 'undo' })
+    expect(session.state.stitchCounts.get(1) ?? 0).toBe(0)
+
+    session.dispatch({ type: 'redo' })
+    expect(session.state.stitchCounts.get(1)).toBe(4)
+  })
+
+  it('are counted afresh for a replaced chart', () => {
+    const session = smallSession()
+    const chart = createChart(10, 8, now)
+    chart.cells.fill(2, 0, 5)
+
+    session.dispatch({ type: 'replace-chart', chart })
+
+    expect(session.state.stitchCounts.get(2)).toBe(5)
+  })
+})
+
+describe('eyedropper', () => {
+  /** Yarn 1 at (0, 0), yarn 2 at (0, 1), a third yarn at (0, 2); the brush and yarn 1 current. */
+  function paintedSession() {
+    const session = smallSession()
+    const third = addYarn(session)
+    stroke(session, [{ row: 0, column: 0 }])
+    stroke(session, [{ row: 0, column: 1 }], 'secondary')
+    session.dispatch({ type: 'select-yarn', yarn: third })
+    stroke(session, [{ row: 0, column: 2 }])
+    session.dispatch({ type: 'select-yarn', yarn: 1 })
+    session.dispatch({ type: 'select-yarn', yarn: 2 })
+    session.dispatch({ type: 'select-yarn', yarn: 1 })
+    return { session, third }
+  }
+
+  it('takes the yarn of the cell: it becomes current, the current one previous', () => {
+    const { session, third } = paintedSession()
+    session.dispatch({ type: 'select-tool', tool: 'eyedropper' })
+
+    stroke(session, [{ row: 0, column: 2 }])
+
+    expect(session.state.currentYarn).toBe(third)
+    expect(session.state.previousYarn).toBe(1)
+  })
+
+  it('leaves the current yarn as it was on an empty cell', () => {
+    const { session } = paintedSession()
+    session.dispatch({ type: 'select-tool', tool: 'eyedropper' })
+
+    stroke(session, [{ row: 5, column: 5 }])
+
+    expect(session.state.currentYarn).toBe(1)
+    expect(session.state.previousYarn).toBe(2)
+  })
+
+  it('gives back the tool it was picked from after a click', () => {
+    const { session } = paintedSession()
+    session.dispatch({ type: 'select-tool', tool: 'eraser' })
+    session.dispatch({ type: 'select-tool', tool: 'eyedropper' })
+
+    stroke(session, [{ row: 0, column: 1 }])
+
+    expect(session.state.tool).toBe('eraser')
+  })
+
+  it('puts the yarn in the previous slot with the secondary button, leaving the current one', () => {
+    const { session, third } = paintedSession()
+    session.dispatch({ type: 'select-tool', tool: 'eyedropper' })
+
+    stroke(session, [{ row: 0, column: 2 }], 'secondary')
+
+    expect(session.state.currentYarn).toBe(1)
+    expect(session.state.previousYarn).toBe(third)
+  })
+
+  it('takes the yarn live while dragging, the result is the cell it is released on', () => {
+    const { session, third } = paintedSession()
+    session.dispatch({ type: 'select-tool', tool: 'eyedropper' })
+    const seen: number[] = []
+    session.subscribe(() => seen.push(session.state.currentYarn))
+
+    session.dispatch({
+      type: 'pointer-down',
+      cell: { row: 0, column: 1 },
+      button: 'primary',
+      shift: false,
+    })
+    session.dispatch({ type: 'pointer-move', cell: { row: 0, column: 2 }, shift: false })
+    session.dispatch({ type: 'pointer-move', cell: { row: 0, column: 0 }, shift: false })
+    session.dispatch({ type: 'pointer-move', cell: { row: 3, column: 3 }, shift: false })
+    session.dispatch({ type: 'pointer-up' })
+
+    expect(seen).toContain(2)
+    expect(seen).toContain(third)
+    // Back on the yarn that was current: the selection is as before the drag, the empty cell keeps it.
+    expect(session.state.currentYarn).toBe(1)
+    expect(session.state.previousYarn).toBe(2)
+  })
+
+  it('puts the selection back when cancelled', () => {
+    const { session } = paintedSession()
+    session.dispatch({ type: 'select-tool', tool: 'eyedropper' })
+
+    session.dispatch({
+      type: 'pointer-down',
+      cell: { row: 0, column: 2 },
+      button: 'primary',
+      shift: false,
+    })
+    session.dispatch({ type: 'cancel-gesture' })
+
+    expect(session.state.currentYarn).toBe(1)
+    expect(session.state.previousYarn).toBe(2)
+  })
+
+  it('makes no edit: undo after it undoes the stroke before', () => {
+    const { session } = paintedSession()
+    session.dispatch({ type: 'select-tool', tool: 'eyedropper' })
+
+    stroke(session, [{ row: 0, column: 2 }])
+    session.dispatch({ type: 'undo' })
+
+    expect(cellAt(session, 0, 2)).toBe(0)
+  })
+
+  it('is the active tool while held, and the selected tool comes back on release', () => {
+    const { session, third } = paintedSession()
+
+    session.dispatch({ type: 'hold-eyedropper', held: true })
+    expect(session.state.activeTool).toBe('eyedropper')
+    stroke(session, [{ row: 0, column: 2 }])
+    expect(session.state.activeTool).toBe('eyedropper')
+    session.dispatch({ type: 'hold-eyedropper', held: false })
+
+    expect(session.state.currentYarn).toBe(third)
+    expect(session.state.tool).toBe('brush')
+    expect(session.state.activeTool).toBe('brush')
+    expect(cellAt(session, 0, 2)).toBe(third)
+  })
+
+  it('is not taken up by holding during a gesture', () => {
+    const { session } = paintedSession()
+    session.dispatch({
+      type: 'pointer-down',
+      cell: { row: 4, column: 0 },
+      button: 'primary',
+      shift: false,
+    })
+
+    session.dispatch({ type: 'hold-eyedropper', held: true })
+    session.dispatch({ type: 'pointer-move', cell: { row: 4, column: 1 }, shift: false })
+    session.dispatch({ type: 'pointer-up' })
+
+    expect(session.state.activeTool).toBe('brush')
+    expect(cellAt(session, 4, 1)).toBe(1)
+  })
+
+  it('is let go when released during a gesture it started', () => {
+    const { session, third } = paintedSession()
+    session.dispatch({ type: 'hold-eyedropper', held: true })
+    session.dispatch({
+      type: 'pointer-down',
+      cell: { row: 0, column: 2 },
+      button: 'primary',
+      shift: false,
+    })
+
+    session.dispatch({ type: 'hold-eyedropper', held: false })
+    session.dispatch({ type: 'pointer-up' })
+
+    expect(session.state.currentYarn).toBe(third)
+    expect(session.state.activeTool).toBe('brush')
+  })
+})
