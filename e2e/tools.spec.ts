@@ -59,6 +59,37 @@ test('a fill inside a closed brush frame paints the inside only', async ({ page 
   expect(await probe(page, await cellCenter(page, 4, 4))).toEqual(empty)
 })
 
+test('a rectangle dragged with R paints its outline in the current yarn, its middle stays empty', async ({
+  page,
+}) => {
+  await page.goto('./')
+  const status = page.getByRole('contentinfo', { name: 'Статус' })
+  const center = await cellCenter(page, 7, 8)
+  const empty = await probe(page, center)
+  const corners = [
+    await cellCenter(page, 5, 5),
+    await cellCenter(page, 5, 12),
+    await cellCenter(page, 10, 5),
+    await cellCenter(page, 10, 12),
+  ]
+  const side = await cellCenter(page, 5, 8)
+  const [from, , , to] = corners
+
+  await page.keyboard.press('KeyR')
+  await page.mouse.move(from!.x, from!.y)
+  await page.mouse.down()
+  await page.mouse.move(to!.x, to!.y, { steps: 5 })
+  await expect(status.getByText('8 × 6', { exact: true })).toBeVisible()
+  // The preview is on the overlay: the chart itself changes on release.
+  expect(await probe(page, side)).toEqual(empty)
+  await page.mouse.up()
+
+  for (const corner of corners) await expect.poll(() => probe(page, corner)).toEqual(CURRENT_YARN)
+  expect(await probe(page, side)).toEqual(CURRENT_YARN)
+  expect(await probe(page, center)).toEqual(empty)
+  await expect(status.getByText('8 × 6', { exact: true })).toBeHidden()
+})
+
 test('E picks the eraser, shown in the tool column and the status bar', async ({ page }) => {
   await page.goto('./')
   await expect(page.getByRole('button', { name: 'Кисть' })).toHaveAttribute('aria-pressed', 'true')

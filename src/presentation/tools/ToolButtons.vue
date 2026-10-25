@@ -16,6 +16,8 @@ const tools: readonly { tool: Tool; icon: string; code: string }[] = [
   { tool: 'eraser', icon: 'i-lucide-eraser', code: 'KeyE' },
   { tool: 'fill', icon: 'i-lucide-paint-bucket', code: 'KeyG' },
   { tool: 'eyedropper', icon: 'i-lucide-pipette', code: 'KeyI' },
+  { tool: 'line', icon: 'i-lucide-slash', code: 'KeyL' },
+  { tool: 'rectangle', icon: 'i-lucide-square', code: 'KeyR' },
 ]
 
 const select = (tool: Tool) => dispatch({ type: 'select-tool', tool })

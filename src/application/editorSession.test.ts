@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createChart } from '../domain/chart'
 import type { Clock } from '../domain/clock'
+import { lineCells } from '../domain/line'
 import type { GridCell } from '../domain/numbering'
 import {
   createEditorSession,
@@ -543,6 +544,226 @@ describe('unsaved to file', () => {
     session.dispatch({ type: 'pointer-up' })
 
     expect(session.state.unsavedToFile).toBe(true)
+  })
+})
+
+/** Cell indices of a 10-wide chart, sorted, for comparing with a preview. */
+function indices(cells: readonly GridCell[]) {
+  return cells.map(({ row, column }) => row * 10 + column).sort((a, b) => a - b)
+}
+
+function previewCells(session: EditorSession) {
+  return [...(session.state.preview?.cells ?? [])].sort((a, b) => a - b)
+}
+
+function press(session: EditorSession, cell: GridCell, button: PointerButton = 'primary') {
+  session.dispatch({ type: 'pointer-down', cell, button, shift: false })
+}
+
+function move(session: EditorSession, cell: GridCell, shift = false) {
+  session.dispatch({ type: 'pointer-move', cell, shift })
+}
+
+describe('line', () => {
+  function lineSession() {
+    const session = smallSession()
+    session.dispatch({ type: 'select-tool', tool: 'line' })
+    return session
+  }
+
+  it('shows the line as a preview while dragging and paints it as one edit on release', () => {
+    const session = lineSession()
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    press(session, { row: 1, column: 1 })
+    move(session, { row: 3, column: 5 })
+
+    expect(painted(session)).toEqual([])
+    expect(events.filter((e) => e.type === 'patch')).toEqual([])
+    expect(events).toContainEqual({ type: 'preview' })
+    expect(session.state.preview).toMatchObject({ yarn: 1, size: { kind: 'line', length: 5 } })
+    const shown = previewCells(session)
+    expect(shown).toHaveLength(5)
+
+    session.dispatch({ type: 'pointer-up' })
+
+    expect(session.state.preview).toBeNull()
+    expect(indices(painted(session))).toEqual(shown)
+    expect(painted(session).every((c) => c.yarn === 1)).toBe(true)
+    session.dispatch({ type: 'undo' })
+    expect(painted(session)).toEqual([])
+    expect(session.state.canUndo).toBe(false)
+  })
+
+  it('draws with the previous yarn by the secondary button', () => {
+    const session = lineSession()
+
+    stroke(
+      session,
+      [
+        { row: 0, column: 0 },
+        { row: 0, column: 3 },
+      ],
+      'secondary',
+    )
+
+    expect(painted(session).map((c) => c.yarn)).toEqual([2, 2, 2, 2])
+  })
+
+  it('lies flat with Shift at about 30° and on the diagonal 1:1 at about 40°', () => {
+    const session = lineSession()
+
+    press(session, { row: 7, column: 0 })
+    // 3 rows over 5 columns: 31°.
+    move(session, { row: 4, column: 5 }, true)
+    expect(previewCells(session)).toEqual(
+      indices([0, 1, 2, 3, 4, 5].map((column) => ({ row: 7, column }))),
+    )
+
+    // 4 rows over 5 columns: 39°; the pointer projects 4.5 cells along the diagonal, rounded to 5.
+    move(session, { row: 3, column: 5 }, true)
+    expect(previewCells(session)).toEqual(
+      indices([0, 1, 2, 3, 4, 5].map((step) => ({ row: 7 - step, column: step }))),
+    )
+  })
+
+  it('paints the line its preview shows, whatever Shift is on release', () => {
+    const session = lineSession()
+    press(session, { row: 7, column: 0 })
+    move(session, { row: 4, column: 5 })
+    const shown = previewCells(session)
+
+    session.dispatch({ type: 'pointer-up', shift: true })
+
+    expect(indices(painted(session))).toEqual(shown)
+  })
+
+  it('clips a line dragged off the grid and keeps its slope', () => {
+    const session = lineSession()
+
+    const from = { row: 6, column: 6 }
+    const to = { row: 2, column: 14 }
+    stroke(session, [from, to])
+
+    // The line as on an unbounded grid, cut at the right edge: 1 row in 2 columns still.
+    const unclipped = lineCells(from, to, { width: 100, height: 100 })
+    expect(indices(painted(session))).toEqual(indices(unclipped.filter((c) => c.column < 10)))
+    expect(painted(session)).toHaveLength(4)
+  })
+
+  it('leaves no cells, no edit and no preview when cancelled by Esc', () => {
+    const session = lineSession()
+    const events: EditorEvent[] = []
+    press(session, { row: 1, column: 1 })
+    move(session, { row: 1, column: 6 })
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({ type: 'cancel-gesture' })
+    session.dispatch({ type: 'pointer-up' })
+
+    expect(painted(session)).toEqual([])
+    expect(session.state.preview).toBeNull()
+    expect(session.state.canUndo).toBe(false)
+    expect(events).toContainEqual({ type: 'preview' })
+  })
+
+  it('makes no edit over cells that already hold its yarn', () => {
+    const session = lineSession()
+    stroke(session, [
+      { row: 2, column: 0 },
+      { row: 2, column: 4 },
+    ])
+
+    stroke(session, [
+      { row: 2, column: 1 },
+      { row: 2, column: 3 },
+    ])
+    session.dispatch({ type: 'undo' })
+
+    expect(painted(session)).toEqual([])
+  })
+})
+
+describe('rectangle', () => {
+  function rectangleSession() {
+    const session = smallSession()
+    session.dispatch({ type: 'select-tool', tool: 'rectangle' })
+    return session
+  }
+
+  /** Cells of the rectangle rows 1–3, columns 2–5. */
+  const outline = indices([
+    ...[2, 3, 4, 5].flatMap((column) => [
+      { row: 1, column },
+      { row: 3, column },
+    ]),
+    { row: 2, column: 2 },
+    { row: 2, column: 5 },
+  ])
+  const filled = indices(
+    [1, 2, 3].flatMap((row) => [2, 3, 4, 5].map((column) => ({ row, column }))),
+  )
+
+  it('paints the outline when released without Shift and shows its size', () => {
+    const session = rectangleSession()
+
+    press(session, { row: 1, column: 2 })
+    move(session, { row: 3, column: 5 })
+    expect(session.state.preview?.size).toEqual({ kind: 'rectangle', width: 4, height: 3 })
+    session.dispatch({ type: 'pointer-up', shift: false })
+
+    expect(indices(painted(session))).toEqual(outline)
+  })
+
+  it('paints it filled when released with Shift, whatever Shift was while dragging', () => {
+    const session = rectangleSession()
+
+    press(session, { row: 1, column: 2 })
+    move(session, { row: 3, column: 5 })
+    session.dispatch({ type: 'pointer-up', shift: true })
+
+    expect(indices(painted(session))).toEqual(filled)
+    session.dispatch({ type: 'undo' })
+    expect(painted(session)).toEqual([])
+  })
+
+  it('switches the preview as Shift goes down and up during the drag', () => {
+    const session = rectangleSession()
+    press(session, { row: 1, column: 2 })
+
+    move(session, { row: 3, column: 5 })
+    expect(previewCells(session)).toEqual(outline)
+    move(session, { row: 3, column: 5 }, true)
+    expect(previewCells(session)).toEqual(filled)
+    move(session, { row: 3, column: 5 }, false)
+    expect(previewCells(session)).toEqual(outline)
+  })
+
+  it('goes to the edge of the grid when dragged past it', () => {
+    const session = rectangleSession()
+
+    press(session, { row: 5, column: 7 })
+    move(session, { row: 12, column: 20 }, true)
+    expect(session.state.preview?.size).toEqual({ kind: 'rectangle', width: 3, height: 3 })
+    session.dispatch({ type: 'pointer-up' })
+
+    expect(indices(painted(session))).toEqual(
+      indices([5, 6, 7].flatMap((row) => [7, 8, 9].map((column) => ({ row, column })))),
+    )
+  })
+
+  it('makes no edit when cancelled by a second button', () => {
+    const session = rectangleSession()
+    press(session, { row: 1, column: 2 })
+    move(session, { row: 3, column: 5 })
+
+    press(session, { row: 3, column: 5 }, 'secondary')
+    session.dispatch({ type: 'pointer-up' })
+
+    expect(painted(session)).toEqual([])
+    expect(session.state.preview).toBeNull()
+    expect(session.state.canUndo).toBe(false)
   })
 })
 

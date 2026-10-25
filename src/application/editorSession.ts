@@ -1,7 +1,7 @@
 import { createChart, initialYarnSelection, repairYarnSelection, type Chart } from '../domain/chart'
 import type { Clock } from '../domain/clock'
 import { fillCells } from '../domain/fill'
-import { lineCells } from '../domain/line'
+import { lineCells, snapLineEnd } from '../domain/line'
 import type { GridCell } from '../domain/numbering'
 import {
   addYarn,
@@ -13,6 +13,7 @@ import {
   type YarnId,
 } from '../domain/palette'
 import { applyPatch, invertPatch, type CellChange, type ChartPatch } from '../domain/patch'
+import { clampToGrid, rectangleCells } from '../domain/rectangle'
 import { countStitches, updateStitchCounts, type StitchCounts } from '../domain/stitchCount'
 import { createHistory } from './history'
 
@@ -22,9 +23,20 @@ export const START_CHART_SIZE = 40
 /** Colour of a yarn added by «Добавить нить»; the user sets the real one in the yarn editor. */
 export const NEW_YARN_COLOR = '#808080'
 
-export const TOOLS = ['brush', 'eraser', 'fill', 'eyedropper'] as const
+export const TOOLS = ['brush', 'eraser', 'fill', 'eyedropper', 'line', 'rectangle'] as const
 
 export type Tool = (typeof TOOLS)[number]
+
+/** What a line or rectangle gesture paints on release; the overlay shows it during the gesture. */
+export interface GesturePreview {
+  readonly yarn: YarnId
+  /** Cell indices, each once. */
+  readonly cells: readonly number[]
+  /** For the status bar: «длина 14», «12 × 5». */
+  readonly size:
+    | { readonly kind: 'line'; readonly length: number }
+    | { readonly kind: 'rectangle'; readonly width: number; readonly height: number }
+}
 
 /** `primary` draws with the current yarn, `secondary` with the previous one. */
 export type PointerButton = 'primary' | 'secondary'
@@ -42,6 +54,8 @@ export interface EditorState {
   readonly activeTool: Tool
   /** A gesture started on the grid and has not ended yet. */
   readonly gestureActive: boolean
+  /** The preview of the line or rectangle gesture under way, otherwise `null`. */
+  readonly preview: GesturePreview | null
   readonly canUndo: boolean
   readonly canRedo: boolean
   /** The chart has what the last saved `.kchart` has not (docs/spec.md, «Изменения не в файле»). */
@@ -68,6 +82,8 @@ export type EditorEvent =
 /**
  * Pointer commands come in cells, which may lie off the grid (docs/spec.md, «Инструменты»).
  * `pointer-up` also ends a gesture on `pointercancel` and on losing window focus: the gesture is kept.
+ * Shift is read live from `pointer-move`; the `shift` of `pointer-up`, when given, is what a rectangle
+ * is filled by, otherwise the last one counts.
  * `cancel-gesture` (`Esc`) rolls it back; so does a second `pointer-down` during it (a second button).
  * Yarn and palette commands are ignored during a gesture.
  * `update-yarn` with a `merge` key joins the last edit if it was made with the same key, so a colour
@@ -87,7 +103,7 @@ export type EditorCommand =
       readonly shift: boolean
     }
   | { readonly type: 'pointer-move'; readonly cell: GridCell; readonly shift: boolean }
-  | { readonly type: 'pointer-up' }
+  | { readonly type: 'pointer-up'; readonly shift?: boolean }
   | { readonly type: 'cancel-gesture' }
   | { readonly type: 'select-yarn'; readonly yarn: YarnId }
   | { readonly type: 'swap-yarns' }
@@ -129,6 +145,18 @@ interface Fill {
   readonly before: Map<number, YarnId>
 }
 
+/** A line or rectangle gesture: it changes no cells until released, the preview shows what it will paint. */
+interface Shape {
+  readonly kind: 'shape'
+  readonly tool: 'line' | 'rectangle'
+  readonly yarn: YarnId
+  readonly from: GridCell
+  /** The pointer cell, which may lie off the grid. */
+  to: GridCell
+  /** Snaps a line to 0° / 45° / 90°, fills a rectangle. */
+  shift: boolean
+}
+
 /** An eyedropper gesture: it takes the yarn under the pointer live, counted from the selection it started with. */
 interface Pick {
   readonly kind: 'pick'
@@ -150,7 +178,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
   let history = createHistory()
   /** The history top when the chart was last saved to a file; the chart is unsaved when the top differs. */
   let savedTop = history.top
-  let gesture: Stroke | Fill | Pick | null = null
+  let gesture: Stroke | Fill | Shape | Pick | null = null
   let eyedropperHeld = false
   /** The tool the eyedropper hands back after a click. */
   let toolBeforeEyedropper: Tool = 'brush'
@@ -187,6 +215,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
       tool,
       activeTool: eyedropperHeld ? 'eyedropper' : tool,
       gestureActive: false,
+      preview: null,
       canUndo: false,
       canRedo: false,
       unsavedToFile: history.top !== savedTop,
@@ -258,6 +287,48 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     apply({ kind: 'cells', cells: changes })
   }
 
+  /** The cells a line or rectangle gesture paints: the line clipped to the grid, the rectangle up to its edge. */
+  function shapePreview({ tool, yarn, from, to, shift }: Shape): GesturePreview {
+    const { chart } = state
+    if (tool === 'line') {
+      const end = shift ? snapLineEnd(from, to) : to
+      const cells = lineCells(from, end, chart).map(({ row, column }) => row * chart.width + column)
+      return { yarn, cells, size: { kind: 'line', length: cells.length } }
+    }
+    const corner = clampToGrid(to, chart)
+    return {
+      yarn,
+      cells: rectangleCells(from, corner, chart, shift),
+      size: {
+        kind: 'rectangle',
+        width: Math.abs(corner.column - from.column) + 1,
+        height: Math.abs(corner.row - from.row) + 1,
+      },
+    }
+  }
+
+  function reshape(shape: Shape, to: GridCell, shift: boolean) {
+    if (to.row === shape.to.row && to.column === shape.to.column && shift === shape.shift) return
+    shape.to = to
+    shape.shift = shift
+    update({ preview: shapePreview(shape) })
+    emit({ type: 'preview' })
+  }
+
+  /** Paints a line or a rectangle as one edit; cells that already hold its yarn are left out. */
+  function paintShape(shape: Shape) {
+    const { chart } = state
+    const { yarn, cells } = shapePreview(shape)
+    const changes: CellChange[] = []
+    for (const index of cells) {
+      const before = chart.cells[index] ?? 0
+      if (before !== yarn) changes.push({ index, before, after: yarn })
+    }
+    if (changes.length === 0) return
+    apply({ kind: 'cells', cells: changes })
+    record({ kind: 'cells', cells: changes })
+  }
+
   /** Takes the yarn of the cell; an empty cell or one off the grid leaves the selection as it is. */
   function pick({ button, start }: Pick, cell: GridCell) {
     const { chart } = state
@@ -268,7 +339,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     else select(yarn, start.current)
   }
 
-  function startGesture(cell: GridCell, button: PointerButton) {
+  function startGesture(cell: GridCell, button: PointerButton, shift: boolean) {
     if (!onGrid(cell)) return
     const tool = state.activeTool
     if (tool === 'eyedropper') {
@@ -285,6 +356,14 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     }
     const yarn =
       tool === 'eraser' ? 0 : button === 'primary' ? state.currentYarn : state.previousYarn
+    if (tool === 'line' || tool === 'rectangle') {
+      const started: Shape = { kind: 'shape', tool, yarn, from: cell, to: cell, shift }
+      gesture = started
+      update({ preview: shapePreview(started) })
+      emit({ type: 'state' })
+      emit({ type: 'preview' })
+      return
+    }
     const started: Stroke | Fill =
       tool === 'fill'
         ? { kind: 'fill', yarn, before: new Map() }
@@ -296,11 +375,21 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     else paint(started, cell, cell)
   }
 
-  /** Ends the gesture: `keep` records a stroke's or a fill's patch as one edit, otherwise the gesture is rolled back. */
+  /**
+   * Ends the gesture: `keep` records a stroke's or a fill's patch as one edit and paints a shape,
+   * otherwise the gesture is rolled back.
+   */
   function endGesture(keep: boolean) {
     if (!gesture) return
     const ended = gesture
     gesture = null
+    if (ended.kind === 'shape') {
+      if (keep) paintShape(ended)
+      update({ preview: null })
+      emit({ type: 'preview' })
+      emit({ type: 'state' })
+      return
+    }
     if (ended.kind === 'pick') {
       if (!keep) select(ended.start.current, ended.start.previous)
       // After a click the eyedropper picked as a tool hands back the tool it was picked from.
@@ -348,16 +437,22 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
       case 'pointer-down':
         // A second button during the gesture cancels it.
         if (gesture) endGesture(false)
-        else startGesture(command.cell, command.button)
+        else startGesture(command.cell, command.button, command.shift)
         break
       case 'pointer-move':
         if (gesture?.kind === 'pick') pick(gesture, command.cell)
         else if (gesture?.kind === 'stroke') {
           paint(gesture, gesture.last, command.cell)
           gesture.last = command.cell
-        }
+        } else if (gesture?.kind === 'shape') reshape(gesture, command.cell, command.shift)
         break
       case 'pointer-up':
+        if (
+          gesture?.kind === 'shape' &&
+          gesture.tool === 'rectangle' &&
+          command.shift !== undefined
+        )
+          gesture.shift = command.shift
         endGesture(true)
         break
       case 'cancel-gesture':

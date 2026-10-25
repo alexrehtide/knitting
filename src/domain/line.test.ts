@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { lineCells } from './line'
+import { lineCells, snapLineEnd } from './line'
 import type { GridCell } from './numbering'
 
 const grid = { width: 20, height: 10 }
@@ -52,5 +52,33 @@ describe('lineCells', () => {
 
   it('gives nothing for a line wholly outside the grid', () => {
     expect(lineCells({ row: -1, column: 0 }, { row: -1, column: 19 }, grid)).toEqual([])
+  })
+})
+
+describe('snapLineEnd', () => {
+  const from = { row: 10, column: 10 }
+
+  it('lays a line at about 30° horizontally, its end under the pointer column', () => {
+    // 6 rows over 10 columns: 31°.
+    expect(snapLineEnd(from, { row: 4, column: 20 })).toEqual({ row: 10, column: 20 })
+  })
+
+  it('lays a line at about 40° on the diagonal, strictly 1:1, the end projected from the pointer', () => {
+    // 8 rows over 10 columns: 39°; the projection on the diagonal is 9 cells along.
+    expect(snapLineEnd(from, { row: 18, column: 0 })).toEqual({ row: 19, column: 1 })
+  })
+
+  it('lays a line at about 60° vertically', () => {
+    expect(snapLineEnd(from, { row: 0, column: 4 })).toEqual({ row: 0, column: 10 })
+  })
+
+  it('keeps the diagonal up to 55° and gives way to the vertical past it', () => {
+    // 7 rows over 5 columns: 54.5°; 3 rows over 2 columns: 56.3°.
+    expect(snapLineEnd(from, { row: 17, column: 15 })).toEqual({ row: 16, column: 16 })
+    expect(snapLineEnd(from, { row: 13, column: 12 })).toEqual({ row: 13, column: 10 })
+  })
+
+  it('leaves a zero-length line where it is', () => {
+    expect(snapLineEnd(from, from)).toEqual(from)
   })
 })

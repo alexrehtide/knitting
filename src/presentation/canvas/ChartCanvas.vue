@@ -167,8 +167,15 @@ function moveGesture(point: { x: number; y: number; shift: boolean }) {
 }
 
 function onPointerUp(event: PointerEvent) {
-  if (gesture?.pointerId === event.pointerId) endGesture({ type: 'pointer-up' })
+  if (gesture?.pointerId === event.pointerId)
+    endGesture({ type: 'pointer-up', shift: event.shiftKey })
   if (pan.value?.pointerId === event.pointerId) pan.value = null
+}
+
+/** Shift is read live: pressing or releasing it under a still pointer changes the line's or rectangle's preview. */
+function onShift(event: KeyboardEvent) {
+  if (event.key !== 'Shift' || !gesture || gesture.shift === event.shiftKey) return
+  moveGesture({ x: gesture.x, y: gesture.y, shift: event.shiftKey })
 }
 
 function onKeyDown(event: KeyboardEvent) {
@@ -177,6 +184,7 @@ function onKeyDown(event: KeyboardEvent) {
     endGesture({ type: 'cancel-gesture' })
     return
   }
+  onShift(event)
   // Held Alt is the eyedropper, unless the key belongs to a field or an open popover; the session
   // ignores it during a gesture.
   if (event.key === 'Alt') {
@@ -190,6 +198,7 @@ function onKeyDown(event: KeyboardEvent) {
 }
 
 function onKeyUp(event: KeyboardEvent) {
+  onShift(event)
   if (event.code === 'Space') spaceHeld.value = false
   if (event.key === 'Alt') {
     // Firefox shows its menu bar on a lone Alt release.

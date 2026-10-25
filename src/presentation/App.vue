@@ -106,6 +106,11 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
         }}</span>
         <span>{{ t('status.zoom', { percent: view.zoomPercent.value }) }}</span>
         <span>{{ t('status.tool', { tool: t(`tool.${state.activeTool}`) }) }}</span>
+        <span v-if="state.preview" class="tabular-nums">{{
+          state.preview.size.kind === 'line'
+            ? t('status.lineLength', { length: state.preview.size.length })
+            : t('status.rectangleSize', state.preview.size)
+        }}</span>
         <span class="flex items-center gap-1.5">
           {{ t('status.yarn', { number: currentYarn.number }) }}
           <YarnSwatch :color="currentYarn.color" class="size-3" />

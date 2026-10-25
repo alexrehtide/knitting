@@ -51,6 +51,8 @@ export const ru = {
     eraser: 'Ластик',
     fill: 'Заливка',
     eyedropper: 'Пипетка',
+    line: 'Линия',
+    rectangle: 'Прямоугольник',
   },
   yarn: {
     byNumber: 'Нить по номеру',
@@ -118,6 +120,8 @@ export const ru = {
     size: 'Размер: {width} × {height}',
     zoom: 'Масштаб: {percent}%',
     tool: 'Инструмент: {tool}',
+    lineLength: 'длина {length}',
+    rectangleSize: '{width} × {height}',
     yarn: 'Нить: {number}',
     unsavedToFile: 'не в файле',
   },

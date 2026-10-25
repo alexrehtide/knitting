@@ -56,18 +56,41 @@ export function createCanvasRenderer(
   let hatch: { size: number; pattern: CanvasPattern | string } | null = null
 
   let bitmap = createBitmap(session.state.chart)
+  // The gesture preview as a bitmap of its own, transparent but for its cells, drawn as the chart is.
+  let preview: { bitmap: Bitmap; cells: readonly number[] } | null = null
 
   const unsubscribe = session.subscribe((event: EditorEvent) => {
     if (event.type === 'replaced') {
       bitmap = createBitmap(session.state.chart)
+      preview = null
       schedule({ chart: true, marks: true })
     } else if (event.type === 'patch') {
       // A palette patch may recolour any cell, so the bitmap is made afresh.
-      if (event.patch.kind === 'palette') bitmap = createBitmap(session.state.chart)
-      else bitmap.paint(event.patch.cells)
+      if (event.patch.kind === 'palette') {
+        bitmap = createBitmap(session.state.chart)
+        preview = null
+      } else bitmap.paint(event.patch.cells)
       schedule({ chart: true })
+    } else if (event.type === 'preview') {
+      showPreview()
+      schedule({ marks: true })
     }
   })
+
+  function showPreview() {
+    const { chart, preview: next } = session.state
+    preview ??= {
+      bitmap: createBitmap({ ...chart, cells: new Uint16Array(chart.cells.length) }),
+      cells: [],
+    }
+    const cells = next?.cells ?? []
+    // The old cells go empty first, so a cell in both stays painted.
+    preview.bitmap.paint([
+      ...preview.cells.map((index) => ({ index, after: 0 })),
+      ...cells.map((index) => ({ index, after: next?.yarn ?? 0 })),
+    ])
+    preview.cells = cells
+  }
 
   function schedule(layers: Partial<typeof dirty>) {
     dirty.chart ||= !!layers.chart
@@ -94,24 +117,42 @@ export function createCanvasRenderer(
     ctx.fillStyle = OUTSIDE_COLOR
     ctx.fillRect(0, 0, canvas.width, canvas.height)
 
+    const range = visibleRange(width, height, cell, x0, y0)
+    if (!range) return
+    const { c0, c1, r0, r1 } = range
+
+    ctx.fillStyle = hatchPattern(cell, x0, y0)
+    ctx.fillRect(x0 + c0 * cell, y0 + r0 * cell, (c1 - c0) * cell, (r1 - r0) * cell)
+
+    drawCells(ctx, bitmap, cell, x0, y0, range)
+    drawGrid(ctx, chart, cell, x0, y0, range)
+  }
+
+  /** The chart cells that fall on the canvas, as half-open column and row ranges; `null` when none do. */
+  function visibleRange(width: number, height: number, cell: number, x0: number, y0: number) {
     const c0 = Math.max(0, Math.floor(-x0 / cell))
     const c1 = Math.min(width, Math.ceil((canvas.width - x0) / cell))
     const r0 = Math.max(0, Math.floor(-y0 / cell))
     const r1 = Math.min(height, Math.ceil((canvas.height - y0) / cell))
-    if (c0 >= c1 || r0 >= r1) return
+    return c0 < c1 && r0 < r1 ? { c0, c1, r0, r1 } : null
+  }
 
-    const left = x0 + c0 * cell
-    const top = y0 + r0 * cell
+  /**
+   * Paints the cells of a bitmap in their places on the canvas; the chart and the gesture preview go
+   * through it alike, so the preview looks exactly as the cells will.
+   */
+  function drawCells(
+    target: CanvasRenderingContext2D,
+    source: Bitmap,
+    cell: number,
+    x0: number,
+    y0: number,
+    { c0, c1, r0, r1 }: CellRange,
+  ) {
     const w = (c1 - c0) * cell
     const h = (r1 - r0) * cell
-
-    ctx.fillStyle = hatchPattern(cell, x0, y0)
-    ctx.fillRect(left, top, w, h)
-
-    ctx.imageSmoothingEnabled = false
-    ctx.drawImage(bitmap.canvas, c0, r0, c1 - c0, r1 - r0, left, top, w, h)
-
-    drawGrid(chart, cell, x0, y0, { c0, c1, r0, r1 })
+    target.imageSmoothingEnabled = false
+    target.drawImage(source.canvas, c0, r0, c1 - c0, r1 - r0, x0 + c0 * cell, y0 + r0 * cell, w, h)
   }
 
   function drawMarks() {
@@ -129,10 +170,18 @@ export function createCanvasRenderer(
   function drawOverlay(chart: Chart, cell: GridCell | null) {
     overlay.setTransform(1, 0, 0, 1, 0, 0)
     overlay.clearRect(0, 0, overlay.canvas.width, overlay.canvas.height)
-    if (!cell) return
     const size = Math.round(viewport.cellSize * dpr)
     const x0 = Math.round(viewport.originX * dpr)
     const y0 = Math.round(viewport.originY * dpr)
+    const range = visibleRange(chart.width, chart.height, size, x0, y0)
+    if (preview && preview.cells.length > 0 && range) {
+      drawCells(overlay, preview.bitmap, size, x0, y0, range)
+      // The grid lines over the preview cells only: elsewhere the chart canvas has them already.
+      overlay.globalCompositeOperation = 'source-atop'
+      drawGrid(overlay, chart, size, x0, y0, range)
+      overlay.globalCompositeOperation = 'source-over'
+    }
+    if (!cell) return
     const left = x0 + cell.column * size
     const top = y0 + cell.row * size
     if (hover.lines) {
@@ -172,11 +221,12 @@ export function createCanvasRenderer(
   }
 
   function drawGrid(
+    target: CanvasRenderingContext2D,
     chart: Chart,
     cell: number,
     x0: number,
     y0: number,
-    { c0, c1, r0, r1 }: { c0: number; c1: number; r0: number; r1: number },
+    { c0, c1, r0, r1 }: CellRange,
   ) {
     const cssCell = cell / dpr
     if (cssCell < MAJOR_LINES_FROM) return
@@ -191,25 +241,26 @@ export function createCanvasRenderer(
     const half = Math.floor(majorWidth / 2)
 
     if (cssCell >= ALL_LINES_FROM) {
-      ctx.fillStyle = MINOR_LINE_COLOR
-      ctx.beginPath()
-      for (let c = c0; c <= c1; c++) if (!isMajorX(c)) ctx.rect(x0 + c * cell, top, 1, bottom - top)
+      target.fillStyle = MINOR_LINE_COLOR
+      target.beginPath()
+      for (let c = c0; c <= c1; c++)
+        if (!isMajorX(c)) target.rect(x0 + c * cell, top, 1, bottom - top)
       for (let r = r0; r <= r1; r++)
-        if (!isMajorY(r)) ctx.rect(left, y0 + r * cell, right - left, 1)
-      ctx.fill()
+        if (!isMajorY(r)) target.rect(left, y0 + r * cell, right - left, 1)
+      target.fill()
     }
 
-    ctx.fillStyle = MAJOR_LINE_COLOR
-    ctx.beginPath()
+    target.fillStyle = MAJOR_LINE_COLOR
+    target.beginPath()
     for (let c = c0; c <= c1; c++) {
       if (isMajorX(c))
-        ctx.rect(x0 + c * cell - half, top - half, majorWidth, bottom - top + majorWidth)
+        target.rect(x0 + c * cell - half, top - half, majorWidth, bottom - top + majorWidth)
     }
     for (let r = r0; r <= r1; r++) {
       if (isMajorY(r))
-        ctx.rect(left - half, y0 + r * cell - half, right - left + majorWidth, majorWidth)
+        target.rect(left - half, y0 + r * cell - half, right - left + majorWidth, majorWidth)
     }
-    ctx.fill()
+    target.fill()
   }
 
   return {
@@ -253,8 +304,18 @@ function context2d(canvas: HTMLCanvasElement, options?: CanvasRenderingContext2D
   return context
 }
 
+/** Half-open column and row ranges of chart cells. */
+interface CellRange {
+  readonly c0: number
+  readonly c1: number
+  readonly r0: number
+  readonly r1: number
+}
+
+type Bitmap = ReturnType<typeof createBitmap>
+
 /** One pixel per cell; a yarn's colour or transparent for an empty cell. */
-function createBitmap(chart: Chart) {
+function createBitmap(chart: Pick<Chart, 'width' | 'height' | 'cells' | 'palette'>) {
   const { width, height, cells } = chart
   const canvas = new OffscreenCanvas(width, height)
   const context = canvas.getContext('2d')
