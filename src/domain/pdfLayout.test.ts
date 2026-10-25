@@ -70,8 +70,9 @@ describe('layOutPdf', () => {
 
     const layout = layOutPdf(chartOf(10, 10, { cellAspect: { mode: 'manual', ratio: 0.5 } }), a4)
 
-    expect(layout.ok && layout.cell).toEqual({ width: 5, height: 10 })
-    expect(layout.ok && layout.capacity).toEqual({
+    if (!layout.ok) throw new Error(layout.code)
+    expect(layout.cell).toEqual({ width: 5, height: 10 })
+    expect(layout.capacity).toEqual({
       stitches: Math.floor(area.width / 5),
       rows: Math.floor(area.height / 10),
     })
@@ -109,6 +110,14 @@ describe('layOutPdf', () => {
     expect(layout.sheets[0]?.position).toEqual({ row: 4, column: 6 })
     expect(layout.sheets[1]?.position).toEqual({ row: 4, column: 5 })
     expect(layout.sheets[7]?.position).toEqual({ row: 3, column: 6 })
+
+    const topLeft = layOutPdf(
+      chartOf(70, 100, { numbering: { rows: 'top-down', stitches: 'left-to-right' } }),
+      { ...a4, cellWidth: 10 },
+    )
+    if (!topLeft.ok) throw new Error(topLeft.code)
+    expect(topLeft.sheets[0]?.position).toEqual({ row: 0, column: 0 })
+    expect(topLeft.sheets[8]?.position).toEqual({ row: 1, column: 1 })
   })
 
   it.each([
@@ -165,6 +174,14 @@ describe('layOutPdf', () => {
     expect(second.overlap.rows).toBe(1)
     // Bottom up: the repeated row is the bottom one of the sheet.
     expect(second.glue.row).toBe(second.cells.top + second.cells.height - 1)
+
+    const topDown = sheetsOf(
+      chartOf(10, 100, { numbering: { rows: 'top-down', stitches: 'left-to-right' } }),
+      { ...a4, cellWidth: 5, overlap: 1 },
+    )[1]!
+    // Top down: the repeated row is the top one of the sheet.
+    expect(topDown.cells.top).toBe(39)
+    expect(topDown.glue).toEqual({ column: null, row: 40 })
   })
 
   it('starts the grid in the same place modulo the cell on every sheet, partial ones included', () => {
@@ -215,6 +232,7 @@ describe('layOutPdf', () => {
 
     const [large] = sheetsOf(chartOf(12, 12), { ...a4, cellWidth: 5 })
     expect(large?.rulers.stitches).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
+    expect(large?.rulers.rows).toEqual([1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12])
   })
 
   it('decides the ruler labels for each axis by its own cell size', () => {

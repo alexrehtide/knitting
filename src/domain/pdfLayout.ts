@@ -97,6 +97,11 @@ export function pdfGridArea(
   }
 }
 
+/** One sheet's share of an axis: its numbers and how many of the first ones repeat the previous sheet. */
+export interface AxisPart extends NumberRange {
+  readonly overlap: number
+}
+
 /** Absorbs float noise such as 249 / 8.3 so that an exact fit counts. */
 const EPSILON = 1e-9
 
@@ -111,12 +116,12 @@ export function sliceAxis(
   capacity: number,
   majorStep: number,
   overlap: number,
-): { first: number; last: number; overlap: number }[] | null {
+): AxisPart[] | null {
   if (count <= capacity) return [{ first: 1, last: count, overlap: 0 }]
   const room = capacity - overlap
   if (room < 1) return null
   const unique = room < majorStep ? room : room - (room % majorStep)
-  const parts: { first: number; last: number; overlap: number }[] = []
+  const parts: AxisPart[] = []
   for (let start = 1; start <= count; start += unique) {
     const repeated = start === 1 ? 0 : overlap
     parts.push({
@@ -130,18 +135,19 @@ export function sliceAxis(
 
 /** How the chart is cut into PDF sheets (docs/spec.md, «PDF»). */
 export function layOutPdf(chart: Chart, options: PdfLayoutOptions): PdfLayout {
-  const other: PageOrientation = options.orientation === 'portrait' ? 'landscape' : 'portrait'
-  const layout = sheetsOf(chart, options)
+  const otherOrientation: PageOrientation =
+    options.orientation === 'portrait' ? 'landscape' : 'portrait'
+  const layout = layOutSheets(chart, options)
   if (!layout) return { ok: false, code: 'cell-too-large' }
   return {
     ok: true,
     ...layout,
     otherOrientationSheets:
-      sheetsOf(chart, { ...options, orientation: other })?.sheets.length ?? null,
+      layOutSheets(chart, { ...options, orientation: otherOrientation })?.sheets.length ?? null,
   }
 }
 
-function sheetsOf(chart: Chart, { format, orientation, cellWidth, overlap }: PdfLayoutOptions) {
+function layOutSheets(chart: Chart, { format, orientation, cellWidth, overlap }: PdfLayoutOptions) {
   const { majorStep } = chart.properties
   const cell = { width: cellWidth, height: cellWidth / cellAspectRatio(chart.properties) }
   const area = pdfGridArea(format, orientation)
@@ -153,7 +159,7 @@ function sheetsOf(chart: Chart, { format, orientation, cellWidth, overlap }: Pdf
   const rowParts = sliceAxis(chart.height, capacity.rows, majorStep, overlap)
   if (!stitchParts || !rowParts) return null
 
-  const labels = (part: NumberRange, size: number) => {
+  const rulerNumbers = (part: NumberRange, size: number) => {
     const every = size + EPSILON >= PDF_RULER_EVERY_CELL_FROM ? 1 : majorStep
     const numbers: number[] = []
     for (let n = Math.ceil(part.first / every) * every; n <= part.last; n += every) numbers.push(n)
@@ -199,8 +205,8 @@ function sheetsOf(chart: Chart, { format, orientation, cellWidth, overlap }: Pdf
         // the grid starts in the same place and one set of tiling patterns serves the document.
         origin: { x: area.x, y: area.y },
         rulers: {
-          stitches: labels(stitches, cell.width),
-          rows: labels(rows, cell.height),
+          stitches: rulerNumbers(stitches, cell.width),
+          rows: rulerNumbers(rows, cell.height),
         },
       })
     })
