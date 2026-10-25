@@ -14,6 +14,7 @@ const registry = useCommandRegistry()
 const tools: readonly { tool: Tool; icon: string; code: string }[] = [
   { tool: 'brush', icon: 'i-lucide-brush', code: 'KeyB' },
   { tool: 'eraser', icon: 'i-lucide-eraser', code: 'KeyE' },
+  { tool: 'fill', icon: 'i-lucide-paint-bucket', code: 'KeyG' },
   { tool: 'eyedropper', icon: 'i-lucide-pipette', code: 'KeyI' },
 ]
 

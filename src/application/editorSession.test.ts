@@ -136,6 +136,98 @@ describe('brush and eraser', () => {
   })
 })
 
+describe('fill', () => {
+  /** A closed frame of yarn 2 around rows 1–3, columns 1–3, drawn with the secondary button. */
+  function framed() {
+    const session = smallSession()
+    stroke(
+      session,
+      [
+        { row: 0, column: 0 },
+        { row: 0, column: 4 },
+        { row: 4, column: 4 },
+        { row: 4, column: 0 },
+        { row: 0, column: 0 },
+      ],
+      'secondary',
+    )
+    session.dispatch({ type: 'select-tool', tool: 'fill' })
+    return session
+  }
+
+  it('fills the 4-connected area under the pointer, inside the frame only', () => {
+    const session = framed()
+
+    stroke(session, [{ row: 2, column: 2 }])
+
+    expect(cellAt(session, 1, 1)).toBe(1)
+    expect(cellAt(session, 3, 3)).toBe(1)
+    expect(cellAt(session, 5, 5)).toBe(0)
+    expect(cellAt(session, 0, 0)).toBe(2)
+  })
+
+  it('fills with the previous yarn on the secondary button', () => {
+    const session = framed()
+
+    stroke(session, [{ row: 6, column: 6 }], 'secondary')
+
+    expect(cellAt(session, 6, 6)).toBe(2)
+    expect(cellAt(session, 2, 2)).toBe(0)
+  })
+
+  it('counts only the press: moving the pointer fills nothing more', () => {
+    const session = framed()
+
+    stroke(session, [
+      { row: 2, column: 2 },
+      { row: 6, column: 6 },
+    ])
+
+    expect(cellAt(session, 6, 6)).toBe(0)
+  })
+
+  it('is one edit, undone in one step', () => {
+    const session = framed()
+
+    stroke(session, [{ row: 6, column: 6 }])
+    session.dispatch({ type: 'undo' })
+
+    expect(cellAt(session, 6, 6)).toBe(0)
+    expect(cellAt(session, 7, 9)).toBe(0)
+    session.dispatch({ type: 'undo' })
+    expect(painted(session)).toEqual([])
+    expect(session.state.canUndo).toBe(false)
+  })
+
+  it('makes no edit when filling with the same yarn', () => {
+    const session = framed()
+
+    session.dispatch({ type: 'mark-saved' })
+    stroke(session, [{ row: 0, column: 2 }], 'secondary')
+    expect(session.state.unsavedToFile).toBe(false)
+    session.dispatch({ type: 'undo' })
+
+    expect(painted(session)).toEqual([])
+    expect(session.state.canUndo).toBe(false)
+  })
+
+  it('is rolled back on cancel', () => {
+    const session = framed()
+
+    session.dispatch({
+      type: 'pointer-down',
+      cell: { row: 2, column: 2 },
+      button: 'primary',
+      shift: false,
+    })
+    session.dispatch({ type: 'cancel-gesture' })
+
+    expect(cellAt(session, 2, 2)).toBe(0)
+    session.dispatch({ type: 'undo' })
+    expect(session.state.canUndo).toBe(false)
+  })
+})
+
 describe('gesture', () => {
   it('rolls the stroke back on cancel and leaves the undo history as it was', () => {
     const session = smallSession()

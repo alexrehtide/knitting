@@ -1,5 +1,6 @@
 import { createChart, initialYarnSelection, repairYarnSelection, type Chart } from '../domain/chart'
 import type { Clock } from '../domain/clock'
+import { fillCells } from '../domain/fill'
 import { lineCells } from '../domain/line'
 import type { GridCell } from '../domain/numbering'
 import {
@@ -21,7 +22,7 @@ export const START_CHART_SIZE = 40
 /** Colour of a yarn added by «Добавить нить»; the user sets the real one in the yarn editor. */
 export const NEW_YARN_COLOR = '#808080'
 
-export const TOOLS = ['brush', 'eraser', 'eyedropper'] as const
+export const TOOLS = ['brush', 'eraser', 'fill', 'eyedropper'] as const
 
 export type Tool = (typeof TOOLS)[number]
 
@@ -120,6 +121,14 @@ interface Stroke {
   readonly before: Map<number, YarnId>
 }
 
+/** A fill gesture: it fills on the press, the pointer moving during it changes nothing more. */
+interface Fill {
+  readonly kind: 'fill'
+  readonly yarn: YarnId
+  /** Cell index → yarn before the fill, for the cells it changed. */
+  readonly before: Map<number, YarnId>
+}
+
 /** An eyedropper gesture: it takes the yarn under the pointer live, counted from the selection it started with. */
 interface Pick {
   readonly kind: 'pick'
@@ -141,7 +150,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
   let history = createHistory()
   /** The history top when the chart was last saved to a file; the chart is unsaved when the top differs. */
   let savedTop = history.top
-  let gesture: Stroke | Pick | null = null
+  let gesture: Stroke | Fill | Pick | null = null
   let eyedropperHeld = false
   /** The tool the eyedropper hands back after a click. */
   let toolBeforeEyedropper: Tool = 'brush'
@@ -239,6 +248,16 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     apply({ kind: 'cells', cells: changes })
   }
 
+  /** Fills the area under the cell; filling an area with its own yarn changes nothing. */
+  function fill(gesture: Fill, cell: GridCell) {
+    const { chart } = state
+    const before = chart.cells[cell.row * chart.width + cell.column] ?? 0
+    if (before === gesture.yarn) return
+    const changes = fillCells(cell, chart).map((index) => ({ index, before, after: gesture.yarn }))
+    for (const { index } of changes) gesture.before.set(index, before)
+    apply({ kind: 'cells', cells: changes })
+  }
+
   /** Takes the yarn of the cell; an empty cell or one off the grid leaves the selection as it is. */
   function pick({ button, start }: Pick, cell: GridCell) {
     const { chart } = state
@@ -266,14 +285,18 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
     }
     const yarn =
       tool === 'eraser' ? 0 : button === 'primary' ? state.currentYarn : state.previousYarn
-    const stroke: Stroke = { kind: 'stroke', yarn, last: cell, before: new Map() }
-    gesture = stroke
+    const started: Stroke | Fill =
+      tool === 'fill'
+        ? { kind: 'fill', yarn, before: new Map() }
+        : { kind: 'stroke', yarn, last: cell, before: new Map() }
+    gesture = started
     update({})
     emit({ type: 'state' })
-    paint(stroke, cell, cell)
+    if (started.kind === 'fill') fill(started, cell)
+    else paint(started, cell, cell)
   }
 
-  /** Ends the gesture: `keep` records a stroke's patch as one edit, otherwise the gesture is rolled back. */
+  /** Ends the gesture: `keep` records a stroke's or a fill's patch as one edit, otherwise the gesture is rolled back. */
   function endGesture(keep: boolean) {
     if (!gesture) return
     const ended = gesture
@@ -329,7 +352,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
         break
       case 'pointer-move':
         if (gesture?.kind === 'pick') pick(gesture, command.cell)
-        else if (gesture) {
+        else if (gesture?.kind === 'stroke') {
           paint(gesture, gesture.last, command.cell)
           gesture.last = command.cell
         }

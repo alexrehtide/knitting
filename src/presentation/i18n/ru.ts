@@ -49,6 +49,7 @@ export const ru = {
   tool: {
     brush: 'Кисть',
     eraser: 'Ластик',
+    fill: 'Заливка',
     eyedropper: 'Пипетка',
   },
   yarn: {
