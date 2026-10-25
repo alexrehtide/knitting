@@ -3,12 +3,15 @@ import type { ChartPatch } from '../domain/patch'
 /** How many edits undo can reach back (docs/spec.md, «Undo / Redo»). */
 export const HISTORY_DEPTH = 200
 
+/** A point in the history, compared by identity only. */
+export type HistoryPoint = object
+
 /** Undo and redo stacks of edits, each a patch that can be inverted (ADR-0001). */
 export function createHistory() {
   const done: ChartPatch[] = []
   let undone: ChartPatch[] = []
   /** Stands for the chart below the oldest edit; a new one each time an edit leaves past the depth. */
-  let base: object = {}
+  let base: HistoryPoint = {}
 
   return {
     get canUndo() {
@@ -21,7 +24,7 @@ export function createHistory() {
      * The point the chart is at: the last edit, or the base when there is nothing to undo. The same
      * value means the same chart; an edit amended, dropped or pushed out never comes back as the top.
      */
-    get top(): object {
+    get top(): HistoryPoint {
       return done[done.length - 1] ?? base
     },
     /** Records a new edit; the oldest leaves past the depth, and the redo stack is dropped. */

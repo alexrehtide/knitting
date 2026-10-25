@@ -45,7 +45,7 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
           <HelpMenu />
         </nav>
         <h1 class="truncate text-sm font-medium">
-          {{ state.chart.properties.title || t('chart.untitled') }}
+          {{ state.chart.properties.title.trim() || t('chart.untitled') }}
           <span v-if="state.unsavedToFile" :title="t('chart.unsavedToFile')">•</span>
         </h1>
         <div />

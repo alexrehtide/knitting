@@ -41,11 +41,10 @@ async function openFile(page: Page, path: string) {
   await (await chooser).setFiles(path)
 }
 
-function stitches(page: Page, yarn: number) {
-  return page
-    .getByRole('list', { name: 'Нити палитры' })
-    .getByRole('listitem')
-    .nth(yarn - 1)
+/** The stitch counts in the palette rows of yarns 1 and 2. */
+async function expectStitchCounts(page: Page, counts: readonly [string, string]) {
+  const rows = page.getByRole('list', { name: 'Нити палитры' }).getByRole('listitem')
+  for (const [i, count] of counts.entries()) await expect(rows.nth(i)).toContainText(count)
 }
 
 const title = (page: Page) => page.getByRole('heading', { level: 1 })
@@ -72,21 +71,20 @@ test('drawing, undo and redo survive a save to file and opening it in a fresh br
   await paint(page, [1, 1], [1, 3])
   await paint(page, [2, 1], [2, 2], 'right')
   await expect.poll(() => probes(page)).toEqual([WHITE, WHITE, WHITE, BLACK, BLACK])
-  await expect(stitches(page, 1)).toContainText('3 петли')
-  await expect(stitches(page, 2)).toContainText('2 петли')
+  await expectStitchCounts(page, ['3 петли', '2 петли'])
 
   await page.keyboard.press('KeyE')
   await paint(page, [1, 2])
   await expect.poll(() => probes(page)).toEqual(painted)
-  await expect(stitches(page, 1)).toContainText('2 петли')
+  await expectStitchCounts(page, ['2 петли', '2 петли'])
 
   await page.keyboard.press('Control+KeyZ')
   await expect.poll(() => probes(page)).toEqual([WHITE, WHITE, WHITE, BLACK, BLACK])
-  await expect(stitches(page, 1)).toContainText('3 петли')
+  await expectStitchCounts(page, ['3 петли', '2 петли'])
 
   await page.keyboard.press('Control+KeyY')
   await expect.poll(() => probes(page)).toEqual(painted)
-  await expect(stitches(page, 1)).toContainText('2 петли')
+  await expectStitchCounts(page, ['2 петли', '2 петли'])
 
   const saved = await saveFile(page)
   expect(saved.name).toBe('схема.kchart')
@@ -100,14 +98,15 @@ test('drawing, undo and redo survive a save to file and opening it in a fresh br
   const path = testInfo.outputPath(saved.name)
   await writeFile(path, saved.text)
   // A new context starts with clean storage.
-  const context = await browser.newContext()
+  const context = await browser.newContext({ viewport: page.viewportSize(), deviceScaleFactor: 1 })
   const fresh = await context.newPage()
+  // A later time: the file keeps its own dates.
+  await fresh.clock.install({ time: new Date('2026-10-25T12:00:00Z') })
   await fresh.goto('./')
   await openFile(fresh, path)
 
   await expect.poll(() => probes(fresh)).toEqual(painted)
-  await expect(stitches(fresh, 1)).toContainText('2 петли')
-  await expect(stitches(fresh, 2)).toContainText('2 петли')
+  await expectStitchCounts(fresh, ['2 петли', '2 петли'])
   expect((await saveFile(fresh)).text).toBe(saved.text)
   await context.close()
 })
