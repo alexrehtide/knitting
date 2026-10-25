@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest'
+import type { KchartError, KchartResult } from '../application/chartFile'
 import { createChart, type Chart } from '../domain/chart'
 import type { Palette } from '../domain/palette'
 import {
@@ -7,8 +8,6 @@ import {
   readKchartDocument,
   toKchartDocument,
   writeKchart,
-  type KchartError,
-  type KchartResult,
 } from './kchart'
 
 const fixtures = import.meta.glob<string>('../../fixtures/kchart/v1/*.kchart', {

@@ -41,6 +41,8 @@ export interface EditorState {
   readonly gestureActive: boolean
   readonly canUndo: boolean
   readonly canRedo: boolean
+  /** The chart has what the last saved `.kchart` has not (docs/spec.md, «Изменения не в файле»). */
+  readonly unsavedToFile: boolean
   /** Stitches of each yarn, kept up to date in place as patches change cells. */
   readonly stitchCounts: ReadonlyMap<YarnId, number>
 }
@@ -67,6 +69,7 @@ export type EditorEvent =
  * Yarn and palette commands are ignored during a gesture.
  * `update-yarn` with a `merge` key joins the last edit if it was made with the same key, so a colour
  * picker drag is one edit.
+ * `mark-saved` — the chart as it is now went to a `.kchart` file; `replace-chart` counts as saved too.
  */
 export type EditorCommand =
   | { readonly type: 'replace-chart'; readonly chart: Chart }
@@ -93,6 +96,7 @@ export type EditorCommand =
   | { readonly type: 'remove-yarn'; readonly yarn: YarnId }
   | { readonly type: 'undo' }
   | { readonly type: 'redo' }
+  | { readonly type: 'mark-saved' }
 
 export type EditorListener = (event: EditorEvent) => void
 
@@ -131,6 +135,8 @@ const DURING_GESTURE = new Set<EditorCommand['type']>([
 
 export function createEditorSession({ clock }: { clock: Clock }): EditorSession {
   let history = createHistory()
+  /** The history top when the chart was last saved to a file; the chart is unsaved when the top differs. */
+  let savedTop = history.top
   let gesture: Stroke | Pick | null = null
   let eyedropperHeld = false
   /** The tool the eyedropper hands back after a click. */
@@ -153,6 +159,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
       gestureActive: gesture !== null,
       canUndo: history.canUndo,
       canRedo: history.canRedo,
+      unsavedToFile: history.top !== savedTop,
       ...changes,
     }
   }
@@ -169,6 +176,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
       gestureActive: false,
       canUndo: false,
       canRedo: false,
+      unsavedToFile: false,
       stitchCounts,
     }
   }
@@ -292,6 +300,7 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
         gesture = null
         mergeable = null
         history = createHistory()
+        savedTop = history.top
         state = withChart(command.chart, state.tool)
         emit({ type: 'replaced' })
         break
@@ -371,6 +380,14 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
         if (patch) apply(patch)
         break
       }
+      case 'mark-saved':
+        // A colour drag after saving starts a new edit, so its undo comes back to the saved chart.
+        mergeable = null
+        if (savedTop === history.top) break
+        savedTop = history.top
+        update({})
+        emit({ type: 'state' })
+        break
     }
   }
 

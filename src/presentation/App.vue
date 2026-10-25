@@ -9,6 +9,7 @@ import { useChartView } from './canvas/useChartView'
 import { provideCommands } from './commands/useCommands'
 import { useEditor } from './editor/useEditor'
 import EditMenu from './menu/EditMenu.vue'
+import FileMenu from './menu/FileMenu.vue'
 import HelpMenu from './menu/HelpMenu.vue'
 import ViewMenu from './menu/ViewMenu.vue'
 import PalettePanel from './palette/PalettePanel.vue'
@@ -38,11 +39,15 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
         class="grid h-10 shrink-0 grid-cols-[1fr_auto_1fr] items-center border-b border-default px-2"
       >
         <nav class="flex items-center gap-1">
+          <FileMenu />
           <EditMenu />
           <ViewMenu :view="view" />
           <HelpMenu />
         </nav>
-        <h1 class="truncate text-sm font-medium">{{ t('chart.untitled') }}</h1>
+        <h1 class="truncate text-sm font-medium">
+          {{ state.chart.properties.title || t('chart.untitled') }}
+          <span v-if="state.unsavedToFile" :title="t('chart.unsavedToFile')">•</span>
+        </h1>
         <div />
       </header>
 
@@ -101,6 +106,7 @@ const panelTabs = [{ label: t('panel.palette'), value: 'palette', slot: 'palette
           {{ t('status.yarn', { number: currentYarn.number }) }}
           <YarnSwatch :color="currentYarn.color" class="size-3" />
         </span>
+        <span v-if="state.unsavedToFile">{{ t('status.unsavedToFile') }}</span>
       </footer>
     </div>
   </UApp>

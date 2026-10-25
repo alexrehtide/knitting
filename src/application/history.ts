@@ -7,6 +7,8 @@ export const HISTORY_DEPTH = 200
 export function createHistory() {
   const done: ChartPatch[] = []
   let undone: ChartPatch[] = []
+  /** Stands for the chart below the oldest edit; a new one each time an edit leaves past the depth. */
+  let base: object = {}
 
   return {
     get canUndo() {
@@ -15,10 +17,20 @@ export function createHistory() {
     get canRedo() {
       return undone.length > 0
     },
+    /**
+     * The point the chart is at: the last edit, or the base when there is nothing to undo. The same
+     * value means the same chart; an edit amended, dropped or pushed out never comes back as the top.
+     */
+    get top(): object {
+      return done[done.length - 1] ?? base
+    },
     /** Records a new edit; the oldest leaves past the depth, and the redo stack is dropped. */
     record(patch: ChartPatch) {
       done.push(patch)
-      if (done.length > HISTORY_DEPTH) done.shift()
+      if (done.length > HISTORY_DEPTH) {
+        done.shift()
+        base = {}
+      }
       undone = []
     },
     /** Replaces the last edit with one that also holds a change made on top of it. */

@@ -1,4 +1,10 @@
 import * as v from 'valibot'
+import type {
+  ChartFileFormat,
+  KchartCorruption,
+  KchartError,
+  KchartResult,
+} from '../application/chartFile'
 import type { Chart } from '../domain/chart'
 import { MAX_CHART_DIMENSION } from '../domain/chartSize'
 import { FILL_PATTERNS } from '../domain/fillPattern'
@@ -57,35 +63,6 @@ const documentV1 = v.object({
 
 export type KchartDocument = v.InferOutput<typeof documentV1>
 
-/** Why a file is corrupt; rows and yarns are numbered from 1, rows in file order from the top. */
-export type KchartCorruption =
-  /** A field is missing or of the wrong kind; `field` is its dotted path, array items from 1. */
-  | { readonly kind: 'invalid-field'; readonly field: string }
-  | { readonly kind: 'row-count'; readonly rows: number; readonly expected: number }
-  | {
-      readonly kind: 'row-length'
-      readonly row: number
-      readonly length: number
-      readonly expected: number
-    }
-  | {
-      readonly kind: 'yarn-number'
-      readonly row: number
-      readonly yarn: number
-      readonly paletteSize: number
-    }
-
-/** The error categories of a `.kchart` import; presentation turns them into toasts. */
-export type KchartError =
-  | { readonly code: 'not-kchart' }
-  | { readonly code: 'newer-version' }
-  | { readonly code: 'corrupt'; readonly detail: KchartCorruption }
-  | { readonly code: 'too-large' }
-  | { readonly code: 'too-many-yarns' }
-
-export type KchartResult =
-  { readonly ok: true; readonly chart: Chart } | { readonly ok: false; readonly error: KchartError }
-
 /** Pure steps `vN → vN+1` over raw JSON: `MIGRATIONS[N - 1]` lifts version N. None yet. */
 const MIGRATIONS: readonly ((document: Record<string, unknown>) => Record<string, unknown>)[] = []
 
@@ -139,6 +116,12 @@ export function writeKchart(chart: Chart): string {
 /** `<title>.kchart`, or `схема.kchart` when the title is empty. */
 export function kchartFileName(chart: Chart): string {
   return `${chart.properties.title.trim() || 'схема'}.kchart`
+}
+
+/** The serializer as the application's chart file port. */
+export const kchartFormat: ChartFileFormat = {
+  write: (chart) => ({ name: kchartFileName(chart), text: writeKchart(chart) }),
+  read: readKchart,
 }
 
 /** Imports a `.kchart` text; a byte order mark is allowed. */

@@ -316,6 +316,131 @@ describe('undo and redo', () => {
   })
 })
 
+describe('unsaved to file', () => {
+  it('starts clean; an edit sets it and saving clears it', () => {
+    const session = smallSession()
+    expect(session.state.unsavedToFile).toBe(false)
+
+    stroke(session, [{ row: 0, column: 0 }])
+    expect(session.state.unsavedToFile).toBe(true)
+
+    session.dispatch({ type: 'mark-saved' })
+    expect(session.state.unsavedToFile).toBe(false)
+  })
+
+  it('is cleared by undo back to the saved edit and set again by redo', () => {
+    const session = smallSession()
+    stroke(session, [{ row: 0, column: 0 }])
+    session.dispatch({ type: 'mark-saved' })
+    stroke(session, [{ row: 0, column: 1 }])
+
+    session.dispatch({ type: 'undo' })
+    expect(session.state.unsavedToFile).toBe(false)
+
+    session.dispatch({ type: 'redo' })
+    expect(session.state.unsavedToFile).toBe(true)
+  })
+
+  it('is cleared by undo back to an empty history saved as it was', () => {
+    const session = smallSession()
+    session.dispatch({ type: 'mark-saved' })
+    stroke(session, [{ row: 0, column: 0 }])
+
+    session.dispatch({ type: 'undo' })
+
+    expect(session.state.unsavedToFile).toBe(false)
+  })
+
+  it('stays until the next save once the saved edit was dropped by a new edit after undo', () => {
+    const session = smallSession()
+    stroke(session, [{ row: 0, column: 0 }])
+    session.dispatch({ type: 'mark-saved' })
+    session.dispatch({ type: 'undo' })
+
+    stroke(session, [{ row: 0, column: 1 }])
+    session.dispatch({ type: 'undo' })
+    expect(session.state.unsavedToFile).toBe(true)
+
+    session.dispatch({ type: 'mark-saved' })
+    expect(session.state.unsavedToFile).toBe(false)
+  })
+
+  it('stays when the saved point was pushed out past the history depth', () => {
+    const session = smallSession()
+    session.dispatch({ type: 'mark-saved' })
+    for (let i = 0; i < 201; i++) {
+      session.dispatch({ type: 'select-tool', tool: i % 2 ? 'eraser' : 'brush' })
+      stroke(session, [{ row: 0, column: 0 }])
+    }
+
+    while (session.state.canUndo) session.dispatch({ type: 'undo' })
+
+    // The history is empty again, but the first edit is still in the chart.
+    expect(session.state.unsavedToFile).toBe(true)
+  })
+
+  it('is not set by a gesture that changes nothing or by the eyedropper', () => {
+    const session = smallSession()
+    stroke(session, [{ row: 0, column: 0 }])
+    session.dispatch({ type: 'mark-saved' })
+
+    stroke(session, [{ row: 0, column: 0 }])
+    session.dispatch({ type: 'select-tool', tool: 'eyedropper' })
+    stroke(session, [{ row: 0, column: 0 }])
+
+    expect(session.state.unsavedToFile).toBe(false)
+  })
+
+  it('starts a new edit after saving, so undo of a colour drag goes back to the saved colour', () => {
+    const session = smallSession()
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { color: '#110000' }, merge: 'a' })
+    session.dispatch({ type: 'mark-saved' })
+
+    session.dispatch({ type: 'update-yarn', yarn: 2, changes: { color: '#220000' }, merge: 'a' })
+    expect(session.state.unsavedToFile).toBe(true)
+    session.dispatch({ type: 'undo' })
+
+    expect(session.state.chart.palette[1]?.color).toBe('#110000')
+    expect(session.state.unsavedToFile).toBe(false)
+  })
+
+  it('is cleared when the chart is replaced', () => {
+    const session = smallSession()
+    stroke(session, [{ row: 0, column: 0 }])
+
+    session.dispatch({ type: 'replace-chart', chart: createChart(10, 8, now) })
+
+    expect(session.state.unsavedToFile).toBe(false)
+  })
+
+  it('tells subscribers when saving clears it, and stays quiet when there was nothing to clear', () => {
+    const session = smallSession()
+    stroke(session, [{ row: 0, column: 0 }])
+    const events: EditorEvent[] = []
+    session.subscribe((event) => events.push(event))
+
+    session.dispatch({ type: 'mark-saved' })
+    session.dispatch({ type: 'mark-saved' })
+
+    expect(events).toEqual([{ type: 'state' }])
+  })
+
+  it('ignores saving during a gesture', () => {
+    const session = smallSession()
+    session.dispatch({
+      type: 'pointer-down',
+      cell: { row: 0, column: 0 },
+      button: 'primary',
+      shift: false,
+    })
+
+    session.dispatch({ type: 'mark-saved' })
+    session.dispatch({ type: 'pointer-up' })
+
+    expect(session.state.unsavedToFile).toBe(true)
+  })
+})
+
 describe('tool', () => {
   it('starts with the brush and tells subscribers when it changes', () => {
     const session = createEditorSession({ clock })

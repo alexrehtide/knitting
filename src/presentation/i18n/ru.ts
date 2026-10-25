@@ -2,6 +2,29 @@ export const ru = {
   chart: {
     canvasLabel: 'Схема',
     untitled: 'Без названия',
+    unsavedToFile: 'Есть изменения не в файле',
+  },
+  file: {
+    error: {
+      'not-kchart': 'Это не файл схемы (.kchart)',
+      'newer-version': 'Файл создан более новой версией редактора',
+      corrupt: 'Файл повреждён: {detail}',
+      'too-large': 'Схема слишком большая: максимум 500×500',
+      'too-many-yarns': 'Слишком много нитей: максимум 65 535',
+    },
+    corruption: {
+      'invalid-field': 'поле {field}',
+      'row-count': 'рядов {rows} вместо {expected}',
+      'row-length': 'ряд {row}: длина {length} вместо {expected}',
+      'yarn-number': 'ряд {row}: нить {yarn}, а в палитре {paletteSize}',
+    },
+    saveChanges: {
+      title: 'Сохранить изменения в файл?',
+      description: 'В схеме есть изменения, которых нет в сохранённом файле .kchart.',
+      discard: 'Отбросить',
+      cancel: 'Отмена',
+      save: 'Сохранить в файл',
+    },
   },
   layout: {
     menuBar: 'Меню',
@@ -42,6 +65,11 @@ export const ru = {
     },
   },
   menu: {
+    file: {
+      title: 'Файл',
+      open: 'Открыть .kchart…',
+      save: 'Сохранить в файл .kchart',
+    },
     edit: {
       title: 'Правка',
       undo: 'Отменить',
@@ -76,6 +104,7 @@ export const ru = {
     zoom: 'Масштаб: {percent}%',
     tool: 'Инструмент: {tool}',
     yarn: 'Нить: {number}',
+    unsavedToFile: 'не в файле',
   },
 }
 

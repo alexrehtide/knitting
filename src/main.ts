@@ -4,9 +4,14 @@ import { createEditorSession } from './application/editorSession'
 import { createChart } from './domain/chart'
 import { isValidChartDimension } from './domain/chartSize'
 import { createCanvasRenderer } from './infrastructure/canvasRenderer'
+import { kchartFormat } from './infrastructure/kchart'
 import { systemClock } from './infrastructure/systemClock'
 import App from './presentation/App.vue'
-import { chartRendererKey, editorSessionKey } from './presentation/editor/injection'
+import {
+  chartFileFormatKey,
+  chartRendererKey,
+  editorSessionKey,
+} from './presentation/editor/injection'
 import { i18n } from './presentation/i18n'
 import './presentation/main.css'
 
@@ -26,6 +31,7 @@ if (isValidChartDimension(devChartSize)) {
 createApp(App)
   .provide(editorSessionKey, session)
   .provide(chartRendererKey, (canvases) => createCanvasRenderer(canvases, session))
+  .provide(chartFileFormatKey, kchartFormat)
   .use(i18n)
   .use(ui)
   .mount('#app')
