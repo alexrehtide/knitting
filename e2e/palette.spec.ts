@@ -31,6 +31,43 @@ test('a new yarn with a hex colour paints the chart; its row counts the stitches
   await expect(palette.getByRole('listitem').nth(0)).toContainText('0 петель')
 })
 
+test('removing a used yarn replaces its cells; Ctrl+Z brings back the cells and the yarn', async ({
+  page,
+}) => {
+  await page.goto('./')
+  const palette = page.getByRole('list', { name: 'Нити палитры' })
+  // Yarn 2 (black) on the right button.
+  const start = await cellCenter(page, 3, 2)
+  const end = await cellCenter(page, 3, 4)
+  await page.mouse.move(start.x, start.y)
+  await page.mouse.down({ button: 'right' })
+  await page.mouse.move(end.x, end.y)
+  await page.mouse.up({ button: 'right' })
+  const middle = await cellCenter(page, 3, 3)
+  await expect.poll(() => probe(page, middle)).toEqual([0, 0, 0])
+
+  await page.getByRole('button', { name: 'Изменить нить 2' }).click()
+  await page.getByRole('button', { name: 'Удалить' }).click()
+  const dialog = page.getByRole('dialog', { name: 'Замена нити' })
+  await expect(dialog).toContainText('3 петли')
+  await dialog.getByRole('button', { name: 'Нить 1: без имени' }).click()
+  await dialog.getByRole('button', { name: 'Заменить и удалить' }).click()
+
+  await expect(dialog).toBeHidden()
+  await expect.poll(() => probe(page, middle)).toEqual([255, 255, 255])
+  await expect(palette.getByRole('listitem')).toHaveCount(1)
+  await expect(palette.getByRole('listitem').nth(0)).toContainText('3 петли')
+
+  await page.keyboard.press('Control+z')
+  await expect.poll(() => probe(page, middle)).toEqual([0, 0, 0])
+  await expect(palette.getByRole('listitem')).toHaveCount(2)
+  await expect(
+    palette.getByRole('listitem').nth(1).getByRole('button', { name: 'Нить 2: без имени' }),
+  ).toBeVisible()
+  await expect(palette.getByRole('listitem').nth(1)).toContainText('3 петли')
+  await expect(palette.getByRole('listitem').nth(0)).toContainText('0 петель')
+})
+
 test('a click on the chart with the yarn editor open closes it and paints', async ({ page }) => {
   await page.goto('./')
   await page.getByRole('button', { name: 'Изменить нить 1' }).click()

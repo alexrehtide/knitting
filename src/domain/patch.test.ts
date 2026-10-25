@@ -46,3 +46,31 @@ describe('palette patches', () => {
     expect(chart.palette).toBe(before)
   })
 })
+
+describe('composite patches', () => {
+  it('apply their parts in order, and undo them in reverse when inverted', () => {
+    const chart = createChart(3, 2, now)
+    const before = chart.palette
+    const after = before.slice(1)
+    const composite: ChartPatch = {
+      kind: 'composite',
+      parts: [
+        { kind: 'cells', cells: [{ index: 1, before: 0, after: 2 }] },
+        { kind: 'palette', before, after },
+      ],
+    }
+
+    applyPatch(chart, composite)
+    expect([...chart.cells]).toEqual([0, 2, 0, 0, 0, 0])
+    expect(chart.palette).toBe(after)
+
+    const inverted = invertPatch(composite)
+    expect(inverted.kind === 'composite' && inverted.parts.map((p) => p.kind)).toEqual([
+      'palette',
+      'cells',
+    ])
+    applyPatch(chart, inverted)
+    expect([...chart.cells]).toEqual([0, 0, 0, 0, 0, 0])
+    expect(chart.palette).toBe(before)
+  })
+})

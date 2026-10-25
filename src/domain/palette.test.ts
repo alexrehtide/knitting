@@ -88,10 +88,9 @@ describe('removeYarn', () => {
 })
 
 describe('yarnRemovalBlock', () => {
-  it('blocks the last yarn and a yarn with stitches, and lets an unused one go', () => {
-    expect(yarnRemovalBlock([yarn(1)], 0)).toBe('last-yarn')
-    expect(yarnRemovalBlock([yarn(1), yarn(2)], 3)).toBe('yarn-in-use')
-    expect(yarnRemovalBlock([yarn(1), yarn(2)], 0)).toBeNull()
+  it('blocks the last yarn and lets any other go', () => {
+    expect(yarnRemovalBlock([yarn(1)])).toBe('last-yarn')
+    expect(yarnRemovalBlock([yarn(1), yarn(2)])).toBeNull()
   })
 })
 

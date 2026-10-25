@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onScopeDispose } from 'vue'
+import { computed, onScopeDispose, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import UAlert from '@nuxt/ui/components/Alert.vue'
 import UButton from '@nuxt/ui/components/Button.vue'
@@ -9,6 +9,7 @@ import { patternClashCount, patternUses } from '../../domain/palette'
 import { editorSessionKey, injectStrict } from '../editor/injection'
 import { useEditor } from '../editor/useEditor'
 import YarnEditor from './YarnEditor.vue'
+import YarnReplaceModal, { type YarnReplacement } from './YarnReplaceModal.vue'
 
 const { t } = useI18n()
 const { state, dispatch } = useEditor()
@@ -32,6 +33,14 @@ const rows = computed(() => {
   }))
 })
 const clashes = computed(() => patternClashCount(state.value.chart.palette))
+
+// The dialog keeps its last yarn while it closes, so its content does not vanish mid-animation.
+const replacing = ref(false)
+const replacement = ref<YarnReplacement | null>(null)
+function openReplacement(next: YarnReplacement) {
+  replacement.value = next
+  replacing.value = true
+}
 </script>
 
 <template>
@@ -65,7 +74,12 @@ const clashes = computed(() => patternClashCount(state.value.chart.palette))
           :class="number <= 9 ? 'font-semibold text-highlighted' : 'text-dimmed'"
           >{{ number }}</span
         >
-        <YarnEditor :yarn="yarn" :number="number" :stitches="stitches" />
+        <YarnEditor
+          :yarn="yarn"
+          :number="number"
+          :stitches="stitches"
+          @replace="(remove) => openReplacement({ yarn: yarn.id, remove })"
+        />
         <span
           class="pointer-events-none min-w-0 flex-1 truncate"
           :class="yarn.name ? '' : 'text-muted italic'"
@@ -93,5 +107,6 @@ const clashes = computed(() => patternClashCount(state.value.chart.palette))
         @click="dispatch({ type: 'add-yarn' })"
       />
     </div>
+    <YarnReplaceModal v-model:open="replacing" :replacement="replacement" />
   </div>
 </template>

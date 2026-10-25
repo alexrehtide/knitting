@@ -44,16 +44,11 @@ export function removeYarn(palette: Palette, id: YarnId): Palette {
 }
 
 /**
- * Why a yarn with this many stitches cannot be removed, or `null` if it can: the palette is never empty,
- * and removing a used yarn needs a yarn replacement, which stage 1 does not have.
+ * Why a yarn of the palette cannot be removed, or `null` if it can: the palette is never empty.
+ * A used yarn can, with a replacement for its cells (yarnReplacement.ts).
  */
-export function yarnRemovalBlock(
-  palette: Palette,
-  stitches: number,
-): 'last-yarn' | 'yarn-in-use' | null {
-  if (palette.length <= 1) return 'last-yarn'
-  if (stitches > 0) return 'yarn-in-use'
-  return null
+export function yarnRemovalBlock(palette: Palette): 'last-yarn' | null {
+  return palette.length <= 1 ? 'last-yarn' : null
 }
 
 /** What a yarn edit changes; a field left out stays as it is. */

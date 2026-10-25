@@ -21,6 +21,8 @@ import PatternIcon from './PatternIcon.vue'
 import YarnSwatch from './YarnSwatch.vue'
 
 const { yarn, number, stitches } = defineProps<{ yarn: Yarn; number: number; stitches: number }>()
+/** Asks for the «Замена нити» dialog; `remove` — the yarn goes from the palette after the replacement. */
+const emit = defineEmits<{ replace: [remove: boolean] }>()
 
 const { t } = useI18n()
 const { state, dispatch } = useEditor()
@@ -31,7 +33,7 @@ let mergeKey = ''
 const hex = ref(yarn.color)
 const name = ref(yarn.name)
 const hexInvalid = computed(() => parseYarnColor(hex.value) === null)
-const removalBlock = computed(() => yarnRemovalBlock(state.value.chart.palette, stitches))
+const removalBlock = computed(() => yarnRemovalBlock(state.value.chart.palette))
 const uses = computed(() => patternUses(state.value.chart.palette))
 /** How many other yarns have the pattern. */
 const otherUses = (pattern: FillPattern) =>
@@ -79,9 +81,16 @@ function commitName() {
   dispatch({ type: 'update-yarn', yarn: yarn.id, changes: { name: name.value.trim() } })
 }
 
+function replace() {
+  open.value = false
+  emit('replace', false)
+}
+
+/** A used yarn goes only with a replacement for its cells, chosen in the dialog. */
 function remove() {
   open.value = false
-  dispatch({ type: 'remove-yarn', yarn: yarn.id })
+  if (stitches > 0) emit('replace', true)
+  else dispatch({ type: 'remove-yarn', yarn: yarn.id })
 }
 </script>
 
@@ -166,6 +175,15 @@ function remove() {
         <UFormField :label="t('yarnEditor.name')">
           <UInput v-model="name" class="w-full" @blur="commitName" @keydown.enter="commitName" />
         </UFormField>
+        <UButton
+          :label="t('yarnEditor.replace')"
+          icon="i-lucide-replace"
+          color="neutral"
+          variant="soft"
+          class="self-start"
+          :disabled="stitches === 0"
+          @click="replace"
+        />
         <UTooltip
           :text="removalBlock ? t(`yarnEditor.blocked.${removalBlock}`) : undefined"
           :disabled="!removalBlock"

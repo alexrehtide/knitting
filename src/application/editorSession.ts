@@ -13,9 +13,16 @@ import {
   type YarnChanges,
   type YarnId,
 } from '../domain/palette'
-import { applyPatch, invertPatch, type CellChange, type ChartPatch } from '../domain/patch'
+import {
+  applyPatch,
+  invertPatch,
+  type CellChange,
+  type ChartPatch,
+  type PlainPatch,
+} from '../domain/patch'
 import { clampToGrid, rectangleCells } from '../domain/rectangle'
 import { countStitches, updateStitchCounts, type StitchCounts } from '../domain/stitchCount'
+import { selectionAfterRemoval, yarnReplacementPatch } from '../domain/yarnReplacement'
 import { createHistory } from './history'
 
 /** Size of the chart the editor starts with when there is nothing to restore. */
@@ -79,6 +86,7 @@ export interface EditorState {
 /**
  * One stream for every subscriber (ADR-0006):
  * `patch` — a patch was applied to the chart (a gesture's cells, its rollback, a palette edit, undo, redo);
+ * a composite patch comes as one event per part;
  * `preview` — the gesture preview changed, the chart did not;
  * `replaced` — the whole chart was replaced (new chart, opened file);
  * `state` — something else in the state changed (tool, display mode, yarn selection, gesture, history),
@@ -86,7 +94,7 @@ export interface EditorState {
  * `rejected` — an edit was refused, nothing changed.
  */
 export type EditorEvent =
-  | { readonly type: 'patch'; readonly patch: ChartPatch }
+  | { readonly type: 'patch'; readonly patch: PlainPatch }
   | { readonly type: 'preview' }
   | { readonly type: 'replaced' }
   | { readonly type: 'state' }
@@ -101,6 +109,8 @@ export type EditorEvent =
  * Yarn and palette commands are ignored during a gesture.
  * `update-yarn` with a `merge` key joins the last edit if it was made with the same key, so a colour
  * picker drag is one edit.
+ * `replace-yarn` puts `replacement` (0 — empty) in every cell of the yarn; `remove-yarn` with a
+ * `replacement` does that and removes the yarn as one edit, and a used yarn is removed only so.
  * `mark-saved` — the chart as it is now went to a `.kchart` file; `replace-chart` counts as saved too,
  * unless `unsavedToFile` says the chart has changes not in a file (one restored from the autosave):
  * then only saving clears the mark, as there is no history to undo back to a saved chart.
@@ -128,7 +138,8 @@ export type EditorCommand =
       readonly changes: YarnChanges
       readonly merge?: string
     }
-  | { readonly type: 'remove-yarn'; readonly yarn: YarnId }
+  | { readonly type: 'replace-yarn'; readonly yarn: YarnId; readonly replacement: YarnId }
+  | { readonly type: 'remove-yarn'; readonly yarn: YarnId; readonly replacement?: YarnId }
   | { readonly type: 'undo' }
   | { readonly type: 'redo' }
   | { readonly type: 'mark-saved' }
@@ -243,6 +254,10 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
   }
 
   function apply(patch: ChartPatch) {
+    if (patch.kind === 'composite') {
+      for (const part of patch.parts) apply(part)
+      return
+    }
     if (patch.kind === 'cells' && patch.cells.length === 0) return
     const { chart } = state
     applyPatch(chart, patch)
@@ -270,6 +285,16 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
       if (merge !== undefined) mergeable = { key: merge, before }
     }
     apply({ kind: 'palette', before, after })
+  }
+
+  /** Whether `replacement` may stand in for the yarn: empty, or another yarn of the palette. */
+  function canReplace(yarn: YarnId, replacement: YarnId) {
+    const { palette } = state.chart
+    return (
+      replacement !== yarn &&
+      palette.some((y) => y.id === yarn) &&
+      (replacement === 0 || palette.some((y) => y.id === replacement))
+    )
   }
 
   function select(current: YarnId, previous: YarnId) {
@@ -508,12 +533,34 @@ export function createEditorSession({ clock }: { clock: Clock }): EditorSession 
         editPalette(updateYarn(state.chart.palette, yarn, { color, pattern, name }), merge)
         break
       }
+      case 'replace-yarn': {
+        const { yarn, replacement } = command
+        if (!canReplace(yarn, replacement) || !stitchCounts.has(yarn)) break
+        const patch = yarnReplacementPatch(state.chart, yarn, replacement, { remove: false })
+        record(patch)
+        apply(patch)
+        break
+      }
       case 'remove-yarn': {
         const { palette } = state.chart
-        const { yarn } = command
-        if (!palette.some((y) => y.id === yarn)) break
-        if (yarnRemovalBlock(palette, stitchCounts.get(yarn) ?? 0) !== null) break
-        editPalette(removeYarn(palette, yarn))
+        const { yarn, replacement } = command
+        if (!palette.some((y) => y.id === yarn) || yarnRemovalBlock(palette) !== null) break
+        if (replacement === undefined) {
+          if (!stitchCounts.has(yarn)) editPalette(removeYarn(palette, yarn))
+          break
+        }
+        if (!canReplace(yarn, replacement)) break
+        const patch = yarnReplacementPatch(state.chart, yarn, replacement, { remove: true })
+        const selection = selectionAfterRemoval(
+          removeYarn(palette, yarn),
+          { current: state.currentYarn, previous: state.previousYarn },
+          yarn,
+          replacement,
+        )
+        // The slots move to the replacement first, so the removal leaves them nothing to repair.
+        update({ currentYarn: selection.current, previousYarn: selection.previous })
+        record(patch)
+        apply(patch)
         break
       }
       case 'undo': {

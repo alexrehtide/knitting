@@ -1050,7 +1050,7 @@ describe('palette edits', () => {
     expect(paletteIds(session)).toEqual([1, 2, 3])
   })
 
-  it('refuses to remove a used yarn', () => {
+  it('refuses to remove a used yarn without a replacement', () => {
     const session = smallSession()
     stroke(session, [{ row: 0, column: 0 }], 'secondary')
 
@@ -1082,6 +1082,111 @@ describe('palette edits', () => {
     session.dispatch({ type: 'remove-yarn', yarn: 2 })
     expect(session.state.currentYarn).toBe(1)
     expect(session.state.previousYarn).toBe(1)
+  })
+
+  it('removes a used yarn with a replacement as one edit, undone with its cells and its id', () => {
+    const session = smallSession()
+    const third = addYarn(session)
+    stroke(session, [{ row: 0, column: 0 }], 'secondary')
+    stroke(session, [{ row: 1, column: 1 }], 'secondary')
+    const palette = session.state.chart.palette
+
+    session.dispatch({ type: 'remove-yarn', yarn: 2, replacement: third })
+    expect(painted(session)).toEqual([
+      { row: 0, column: 0, yarn: third },
+      { row: 1, column: 1, yarn: third },
+    ])
+    expect(paletteIds(session)).toEqual([1, third])
+    expect(session.state.stitchCounts.get(third)).toBe(2)
+
+    session.dispatch({ type: 'undo' })
+    expect(painted(session)).toEqual([
+      { row: 0, column: 0, yarn: 2 },
+      { row: 1, column: 1, yarn: 2 },
+    ])
+    expect(session.state.chart.palette).toEqual(palette)
+    expect(session.state.stitchCounts.get(2)).toBe(2)
+
+    session.dispatch({ type: 'redo' })
+    expect(paletteIds(session)).toEqual([1, third])
+  })
+
+  it('removes a used yarn with an empty replacement, leaving its cells empty', () => {
+    const session = smallSession()
+    addYarn(session)
+    stroke(session, [{ row: 0, column: 0 }], 'secondary')
+
+    session.dispatch({ type: 'remove-yarn', yarn: 2, replacement: 0 })
+
+    expect(painted(session)).toEqual([])
+    expect(paletteIds(session)).toEqual([1, 3])
+  })
+
+  it('replaces a yarn in the whole chart as one edit, keeping it in the palette with no stitches', () => {
+    const session = smallSession()
+    stroke(session, [{ row: 0, column: 0 }], 'secondary')
+    stroke(session, [{ row: 2, column: 2 }])
+
+    session.dispatch({ type: 'replace-yarn', yarn: 2, replacement: 0 })
+    expect(painted(session)).toEqual([{ row: 2, column: 2, yarn: 1 }])
+    expect(paletteIds(session)).toEqual([1, 2])
+    expect(session.state.stitchCounts.get(2)).toBeUndefined()
+
+    session.dispatch({ type: 'replace-yarn', yarn: 1, replacement: 2 })
+    expect(painted(session)).toEqual([{ row: 2, column: 2, yarn: 2 }])
+
+    session.dispatch({ type: 'undo' })
+    session.dispatch({ type: 'undo' })
+    expect(painted(session)).toEqual([
+      { row: 0, column: 0, yarn: 2 },
+      { row: 2, column: 2, yarn: 1 },
+    ])
+  })
+
+  it('ignores a replacement by the yarn itself, by a yarn not in the palette and of an unused yarn', () => {
+    const session = smallSession()
+    stroke(session, [{ row: 0, column: 0 }], 'secondary')
+
+    session.dispatch({ type: 'replace-yarn', yarn: 2, replacement: 2 })
+    session.dispatch({ type: 'replace-yarn', yarn: 2, replacement: 9 })
+    session.dispatch({ type: 'remove-yarn', yarn: 2, replacement: 2 })
+    session.dispatch({ type: 'replace-yarn', yarn: 1, replacement: 2 })
+    session.dispatch({ type: 'undo' })
+
+    expect(painted(session)).toEqual([])
+    expect(session.state.canUndo).toBe(false)
+  })
+
+  it('gives the slot of a yarn removed with a replacement that replacement', () => {
+    const session = smallSession()
+    const third = addYarn(session)
+    stroke(session, [{ row: 0, column: 0 }])
+    session.dispatch({ type: 'select-yarn', yarn: third })
+    // Current 3, previous 1.
+
+    session.dispatch({ type: 'remove-yarn', yarn: 1, replacement: 2 })
+    expect(session.state.currentYarn).toBe(third)
+    expect(session.state.previousYarn).toBe(2)
+
+    stroke(session, [{ row: 1, column: 1 }])
+    session.dispatch({ type: 'remove-yarn', yarn: third, replacement: 0 })
+    expect(session.state.currentYarn).toBe(2)
+    expect(session.state.previousYarn).toBe(2)
+  })
+
+  it('gives the slot the first yarn of the palette when the replacement is empty', () => {
+    const session = smallSession()
+    const third = addYarn(session)
+    stroke(session, [{ row: 0, column: 0 }], 'secondary')
+    session.dispatch({ type: 'select-yarn', yarn: third })
+    // Current 3, previous 1; yarn 2 used.
+    session.dispatch({ type: 'select-yarn', yarn: 2 })
+    // Current 2, previous 3.
+
+    session.dispatch({ type: 'remove-yarn', yarn: 2, replacement: 0 })
+
+    expect(session.state.currentYarn).toBe(1)
+    expect(session.state.previousYarn).toBe(third)
   })
 
   it('moves the selection off a yarn whose adding is undone', () => {
